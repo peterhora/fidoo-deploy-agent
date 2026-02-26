@@ -9,7 +9,13 @@ export const DENIED_PATTERNS: string[] = [
   ".claude/",      // directory
   "*.pem",         // extension
   "*.key",         // extension
+  "*.pfx",         // certificate store
+  "*.p12",         // certificate store
   ".DS_Store",     // exact
+  ".npmrc",        // may contain registry tokens
+  "id_rsa",        // SSH private key
+  "id_ed25519",    // SSH private key
+  "id_ecdsa",      // SSH private key
 ];
 
 export function shouldExclude(filePath: string): boolean {

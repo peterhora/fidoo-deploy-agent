@@ -13,9 +13,15 @@ import { handler } from "../../src/tools/app-deploy.js";
 let tokenDir: string;
 let appDir: string;
 
+function makeTestJwt(upn: string): string {
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ upn, sub: "test-sub" })).toString("base64url");
+  return `${header}.${payload}.fake-signature`;
+}
+
 function mockTokens() {
   return {
-    access_token: "test-token",
+    access_token: makeTestJwt("deployer@fidoo.cloud"),
     refresh_token: "test-refresh",
     expires_at: Date.now() + 3600_000,
   };
@@ -348,6 +354,24 @@ describe("app_deploy — first deploy", () => {
     assert.ok(deployJson.resourceId);
   });
 
+  it("includes deployedBy tag from JWT UPN on first deploy", async () => {
+    mockAzureForFullFirstDeploy("my-app");
+
+    await handler({
+      folder: appDir,
+      app_name: "My App",
+      app_description: "A test app",
+    });
+
+    const { getFetchCalls } = await import("../helpers/mock-fetch.js");
+    const calls = getFetchCalls();
+    const patchCall = calls.find((c) => c.init?.method === "PATCH");
+    assert.ok(patchCall, "Should have a PATCH call for updateTags");
+
+    const body = JSON.parse(patchCall.init?.body as string);
+    assert.equal(body.tags.deployedBy, "deployer@fidoo.cloud");
+  });
+
   it("generates correct slug from app_name", async () => {
     mockAzureForFullFirstDeploy("expense-tracker-2-0");
 
@@ -423,6 +447,30 @@ describe("app_deploy — re-deploy", () => {
     assert.ok(body.tags.deployedAt, "Should include deployedAt tag");
     // Verify it's a valid ISO date string
     assert.ok(!isNaN(Date.parse(body.tags.deployedAt)), "deployedAt should be valid ISO date");
+  });
+
+  it("includes deployedBy tag from JWT UPN on re-deploy", async () => {
+    await writeFile(
+      join(appDir, ".deploy.json"),
+      JSON.stringify({
+        appSlug: "existing-app",
+        appName: "Existing App",
+        appDescription: "Already deployed",
+        resourceId: "/subscriptions/x/resourceGroups/rg/providers/Microsoft.Web/staticSites/existing-app",
+      }),
+    );
+
+    mockAzureForRedeploy("existing-app");
+
+    await handler({ folder: appDir });
+
+    const { getFetchCalls } = await import("../helpers/mock-fetch.js");
+    const calls = getFetchCalls();
+    const patchCall = calls.find((c) => c.init?.method === "PATCH");
+    assert.ok(patchCall, "Should have a PATCH call for updateTags");
+
+    const body = JSON.parse(patchCall.init?.body as string);
+    assert.equal(body.tags.deployedBy, "deployer@fidoo.cloud");
   });
 
   it("rebuilds the dashboard after deploy", async () => {

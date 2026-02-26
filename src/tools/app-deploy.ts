@@ -15,6 +15,7 @@ import {
 import { createCnameRecord } from "../azure/dns.js";
 import { AzureError } from "../azure/rest-client.js";
 import { deployDashboard } from "../deploy/dashboard.js";
+import { extractUpn } from "../auth/jwt.js";
 
 export const definition: ToolDefinition = {
   name: "app_deploy",
@@ -78,11 +79,15 @@ async function firstDeploy(
   await createCnameRecord(token, slug, hostname);
   await configureAuth(token, slug);
 
-  await updateTags(token, slug, {
+  const tags: Record<string, string> = {
     appName,
     appDescription,
     deployedAt: new Date().toISOString(),
-  });
+  };
+  const upn = extractUpn(token);
+  if (upn) tags.deployedBy = upn;
+
+  await updateTags(token, slug, tags);
 
   await writeDeployConfig(folder, {
     appSlug: slug,
@@ -109,9 +114,13 @@ async function redeploy(
 
   await deploySwaZip(token, appSlug, zipBuffer);
 
-  await updateTags(token, appSlug, {
+  const tags: Record<string, string> = {
     deployedAt: new Date().toISOString(),
-  });
+  };
+  const upn = extractUpn(token);
+  if (upn) tags.deployedBy = upn;
+
+  await updateTags(token, appSlug, tags);
 
   await deployDashboard(token);
 

@@ -68,6 +68,29 @@ describe("deny-list", () => {
       assert.equal(shouldExclude("images/logo.png"), false);
     });
 
+    it("excludes .pfx certificate files", () => {
+      assert.equal(shouldExclude("cert.pfx"), true);
+      assert.equal(shouldExclude("certs/server.pfx"), true);
+    });
+
+    it("excludes .p12 certificate files", () => {
+      assert.equal(shouldExclude("cert.p12"), true);
+      assert.equal(shouldExclude("certs/client.p12"), true);
+    });
+
+    it("excludes .npmrc", () => {
+      assert.equal(shouldExclude(".npmrc"), true);
+      assert.equal(shouldExclude("subdir/.npmrc"), true);
+    });
+
+    it("excludes SSH key files", () => {
+      assert.equal(shouldExclude("id_rsa"), true);
+      assert.equal(shouldExclude(".ssh/id_rsa"), true);
+      assert.equal(shouldExclude("id_ed25519"), true);
+      assert.equal(shouldExclude(".ssh/id_ed25519"), true);
+      assert.equal(shouldExclude("id_ecdsa"), true);
+    });
+
     it("does not exclude files with similar but non-matching names", () => {
       assert.equal(shouldExclude("environment.ts"), false);
       assert.equal(shouldExclude("deploy.json"), false); // only .deploy.json excluded

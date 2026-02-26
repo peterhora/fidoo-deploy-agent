@@ -162,21 +162,24 @@ deploy_agent/
 
 ---
 
-## Batch 7: Deploy Skill + Integration Tests
+## Batch 7: Deploy Skill + Integration Tests ✅ COMPLETE
 
 **Goal:** Complete, tested, deployable plugin.
 
-### Task 7.1: Deploy skill (`skills/deploy/SKILL.md`)
-- Skill description triggers on "deploy my app", "publish", "delete my app", "list apps", etc.
-- Orchestrates auth flow → first deploy vs re-deploy → app management
-- References all 9 MCP tools with usage guidance
+**Status:** All 3 tasks done. 199 tests pass (17 new). Deploy skill created, security hardened, integration tests passing.
 
-### Task 7.2: Security hardening
-- Verify deny-list completeness, slug collision check, `deployedBy` tag (extract UPN from JWT), dashboard XSS prevention
+### Task 7.1: Deploy skill (`skills/deploy/SKILL.md`) ✅
+### Task 7.2: Security hardening ✅
+### Task 7.3: End-to-end integration tests ✅
 
-### Task 7.3: End-to-end integration tests
-- Full deploy flow simulation with mocked Azure APIs
-- MCP protocol flow test (pipe JSON-RPC to server process)
+**Implementation notes:**
+- `skills/deploy/SKILL.md` — skill with YAML frontmatter, triggers on "deploy my app", "publish", "delete my app", "list apps", etc. Orchestrates auth → deploy → management via all 9 MCP tools. Registered in `.claude-plugin/plugin.json`.
+- `src/auth/jwt.ts` — `extractUpn(token)` parses base64url JWT payload, returns `upn` or `preferred_username` claim. Used for audit tagging (no signature validation needed).
+- `src/tools/app-deploy.ts` — wired `deployedBy` tag from JWT UPN into both `firstDeploy` and `redeploy` flows via `extractUpn`.
+- `src/deploy/deny-list.ts` — expanded from 8 to 14 patterns: added `*.pfx`, `*.p12`, `.npmrc`, `id_rsa`, `id_ed25519`, `id_ecdsa`.
+- Verified existing security: slug collision check (app-deploy.ts:59-69), dashboard XSS prevention (textContent + CSP + JSON escaping).
+- `test/integration/deploy-flow.test.ts` — full lifecycle: auth_status → auth_login → auth_poll → app_deploy (first) → app_list → app_info → app_update_info → app_deploy (re-deploy) → app_delete.
+- `test/integration/mcp-protocol.test.ts` — spawns server process, pipes JSON-RPC over stdio: initialize → notifications/initialized → tools/list → tools/call → unknown method → parse error.
 
 ---
 
