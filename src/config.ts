@@ -1,0 +1,17 @@
+export const config = {
+  tenantId: "7d8c4da5-9bcc-48dd-ace3-fb4681cf4277",
+  clientId: "PLACEHOLDER_CLIENT_ID",
+  subscriptionId: "PLACEHOLDER_SUBSCRIPTION_ID",
+  resourceGroup: "rg-published-apps",
+  dnsZone: "env.fidoo.cloud",
+  dnsResourceGroup: "PLACEHOLDER_DNS_RESOURCE_GROUP",
+  dashboardSlug: "apps",
+  scope: "https://management.azure.com/.default offline_access",
+  armBaseUrl: "https://management.azure.com",
+  entraBaseUrl: "https://login.microsoftonline.com",
+  swaApiVersion: "2022-09-01",
+  dnsApiVersion: "2018-05-01",
+  location: "westeurope",
+  swaSkuName: "Free",
+  swaSkuTier: "Free",
+} as const;

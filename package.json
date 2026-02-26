@@ -1,0 +1,15 @@
+{
+  "name": "deploy-agent",
+  "version": "0.1.0",
+  "description": "Claude Code plugin for deploying static apps to Azure Static Web Apps",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test --test-force-exit dist/test/*.test.js dist/test/**/*.test.js",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}
