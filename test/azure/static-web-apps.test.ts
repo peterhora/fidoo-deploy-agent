@@ -14,6 +14,7 @@ import {
   getDeploymentToken,
   updateTags,
   configureAuth,
+  deploySwaZip,
 } from "../../src/azure/static-web-apps.js";
 
 const TOKEN = "test-access-token";
@@ -226,5 +227,121 @@ describe("configureAuth", () => {
       body.properties.identityProviders.azureActiveDirectory.registration.clientIdSettingName,
       "AZURE_CLIENT_ID",
     );
+  });
+});
+
+describe("deploySwaZip", () => {
+  beforeEach(() => installMockFetch());
+  afterEach(() => restoreFetch());
+
+  it("gets deployment token and POSTs ZIP buffer", async () => {
+    // Mock listSecrets (getDeploymentToken)
+    mockFetch((url, init) => {
+      if (url.includes("/listSecrets") && init?.method === "POST") {
+        return {
+          status: 200,
+          body: { properties: { apiKey: "deploy-key-abc" } },
+        };
+      }
+      return undefined;
+    });
+
+    // Mock getStaticWebApp (for defaultHostname)
+    mockFetch((url, init) => {
+      if (
+        url.includes("/staticSites/my-app") &&
+        !url.includes("/listSecrets") &&
+        (!init?.method || init.method === "GET")
+      ) {
+        return {
+          status: 200,
+          body: {
+            id: RESOURCE_ID,
+            name: "my-app",
+            properties: { defaultHostname: "my-app.azurestaticapps.net" },
+            tags: {},
+          },
+        };
+      }
+      return undefined;
+    });
+
+    // Mock zipdeploy POST
+    mockFetch((url, init) => {
+      if (url.includes("zipdeploy") && init?.method === "POST") {
+        return { status: 200, body: {} };
+      }
+      return undefined;
+    });
+
+    const zipBuffer = Buffer.from("fake-zip-content");
+    await deploySwaZip(TOKEN, "my-app", zipBuffer);
+
+    const calls = getFetchCalls();
+    // Should have 3 calls: listSecrets, getStaticWebApp, zipdeploy
+    assert.equal(calls.length, 3);
+
+    // Verify zipdeploy call
+    const zipCall = calls.find((c) => c.url.includes("zipdeploy"))!;
+    assert.ok(zipCall, "Should have a zipdeploy call");
+    assert.equal(zipCall.init?.method, "POST");
+    assert.ok(
+      zipCall.url.includes("my-app.azurestaticapps.net"),
+      "URL should contain the SWA hostname",
+    );
+
+    // Verify Authorization header is raw token (not Bearer)
+    const headers = zipCall.init?.headers as Record<string, string>;
+    assert.equal(headers["Authorization"], "deploy-key-abc");
+    assert.equal(headers["Content-Type"], "application/octet-stream");
+
+    // Verify body is the zip buffer
+    assert.equal(zipCall.init?.body, zipBuffer);
+  });
+
+  it("throws on deployment failure", async () => {
+    // Mock listSecrets
+    mockFetch((url, init) => {
+      if (url.includes("/listSecrets") && init?.method === "POST") {
+        return {
+          status: 200,
+          body: { properties: { apiKey: "deploy-key-abc" } },
+        };
+      }
+      return undefined;
+    });
+
+    // Mock getStaticWebApp
+    mockFetch((url, init) => {
+      if (
+        url.includes("/staticSites/my-app") &&
+        !url.includes("/listSecrets") &&
+        (!init?.method || init.method === "GET")
+      ) {
+        return {
+          status: 200,
+          body: {
+            id: RESOURCE_ID,
+            name: "my-app",
+            properties: { defaultHostname: "my-app.azurestaticapps.net" },
+            tags: {},
+          },
+        };
+      }
+      return undefined;
+    });
+
+    // Mock zipdeploy POST returning 400
+    mockFetch((url, init) => {
+      if (url.includes("zipdeploy") && init?.method === "POST") {
+        return { status: 400, body: { error: "Bad Request" } };
+      }
+      return undefined;
+    });
+
+    const zipBuffer = Buffer.from("bad-zip");
+    await assert.rejects(() => deploySwaZip(TOKEN, "my-app", zipBuffer), {
+      message: /deploy.*fail/i,
+    });
   });
 });

@@ -106,6 +106,32 @@ export async function updateTags(
   })) as StaticWebAppResource;
 }
 
+export async function deploySwaZip(
+  token: string,
+  slug: string,
+  zipBuffer: Buffer,
+): Promise<void> {
+  const apiKey = await getDeploymentToken(token, slug);
+  const swa = await getStaticWebApp(token, slug);
+  const hostname = (swa.properties as { defaultHostname: string }).defaultHostname;
+
+  const response = await fetch(
+    `https://${hostname}/api/zipdeploy?provider=SwaCli`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: apiKey,
+        "Content-Type": "application/octet-stream",
+      },
+      body: zipBuffer as unknown as BodyInit,
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Deployment failed: ${response.status} ${response.statusText}`);
+  }
+}
+
 export async function configureAuth(
   token: string,
   slug: string,

@@ -36,7 +36,7 @@ describe("tool registry", () => {
   }
 
   const STUB_TOOLS = EXPECTED_TOOLS.filter(
-    (t) => !t.startsWith("auth_")
+    (t) => !t.startsWith("auth_") && t !== "app_deploy" && t !== "dashboard_rebuild"
   );
 
   it("non-auth tool handlers return not-implemented text content", async () => {
