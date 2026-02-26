@@ -46,6 +46,10 @@ export function installMockFetch(): void {
     for (const matcher of matchers) {
       const result = matcher(url, init);
       if (result) {
+        // Status 204 (No Content) must not have a body
+        if (result.status === 204) {
+          return new Response(null, { status: 204 });
+        }
         return new Response(JSON.stringify(result.body), {
           status: result.status,
           headers: { "content-type": "application/json", ...result.headers },

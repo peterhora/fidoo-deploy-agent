@@ -96,18 +96,22 @@ deploy_agent/
 
 ---
 
-## Batch 3: Azure REST Client + Core API Operations
+## Batch 3: Azure REST Client + Core API Operations ✅ COMPLETE
 
 **Goal:** Reusable Azure REST client. Can CRUD Static Web Apps and manage DNS records.
 
-### Task 3.1: Azure REST client (TDD)
-- **Implement** `src/azure/rest-client.ts`: `azureFetch(path, {method, body, token, apiVersion})` — prepends management.azure.com, adds Bearer header, handles 401/429/4xx/5xx
+**Status:** All 3 tasks done. 82 tests pass (29 new). Full Azure REST client, SWA API, and DNS API implemented.
 
-### Task 3.2: Static Web Apps API (TDD)
-- **Implement** `src/azure/static-web-apps.ts`: `createStaticWebApp`, `getStaticWebApp`, `deleteStaticWebApp`, `listStaticWebApps`, `getDeploymentToken`, `updateTags`, `configureAuth`
+### Task 3.1: Azure REST client (TDD) ✅
+### Task 3.2: Static Web Apps API (TDD) ✅
+### Task 3.3: Azure DNS API (TDD) ✅
 
-### Task 3.3: Azure DNS API (TDD)
-- **Implement** `src/azure/dns.ts`: `createCnameRecord`, `deleteCnameRecord`, `getCnameRecord`
+**Implementation notes:**
+- `src/azure/rest-client.ts` — `azureFetch(path, options)`: prepends `config.armBaseUrl`, adds Bearer header, appends `?api-version=`, serializes JSON body with Content-Type, returns `null` on 204, throws `AzureError` (with `.status` and `.code`) on non-2xx responses. Handles missing Azure error envelope gracefully (`UnknownError` fallback).
+- `src/azure/static-web-apps.ts` — 7 functions (`createStaticWebApp`, `getStaticWebApp`, `deleteStaticWebApp`, `listStaticWebApps`, `getDeploymentToken`, `updateTags`, `configureAuth`). All delegate to `azureFetch` with correct ARM paths and API version from config. `configureAuth` sets up Entra ID identity provider with `AZURE_CLIENT_ID` setting name and `unauthenticatedClientAction: "RedirectToLoginPage"`.
+- `src/azure/dns.ts` — 3 functions (`createCnameRecord`, `deleteCnameRecord`, `getCnameRecord`). Uses `config.dnsResourceGroup` and `config.dnsZone` for DNS zone path. CNAME records created with TTL 3600.
+- `test/helpers/mock-fetch.ts` — updated to handle 204 No Content (null body) since `Response` constructor rejects body for status 204.
+- `--test-force-exit` in `npm test` can prematurely terminate when test count grows. Full suite verified with `node --test` (no force-exit). May need adjustment in later batches.
 
 ---
 
