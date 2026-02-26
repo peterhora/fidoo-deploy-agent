@@ -183,29 +183,22 @@ deploy_agent/
 
 ---
 
-## Batch 8: Azure Infrastructure IaC
+## Batch 8: Azure Infrastructure IaC ✅ COMPLETE
 
 **Goal:** Single idempotent `az` CLI script that provisions all Azure infrastructure. Replaces most of the manual "Azure Setup" section in the README.
 
-### Task 8.1: Infrastructure setup script
-- **Create** `infra/setup.sh` — idempotent bash script using `az` CLI
-- Pre-flight checks: verify `az` is installed and logged in, verify subscription access
-- **Resource group:** `az group create --name rg-published-apps --location westeurope` (skip if exists)
-- **App registration "Deploy Plugin":** create with `az ad app create`, enable public client flow (`--enable-id-token-issuance false --is-fallback-public-client true`), add API permission `Azure Service Management / user_impersonation`, create `app_publisher` app role
-- **App registration "Published Apps":** create with `az ad app create`, add redirect URI `https://apps.env.fidoo.cloud/.auth/login/aad/callback`, create `app_subscriber` app role
-- **Dashboard SWA:** create the dashboard Static Web App (`apps` slug) in the resource group using `az staticwebapp create`
-- **RBAC:** assign Contributor role on the resource group to the Deploy Plugin service principal
-- **Output:** print all config values (tenantId, clientId, subscriptionId, resourceGroup, dnsResourceGroup) formatted for `src/config.ts`
-- **DNS:** print manual instructions for CNAME setup referencing existing DNS zone
+**Status:** All 3 tasks done. 209 tests pass (10 new). Infrastructure script, README update, and config injection complete.
 
-### Task 8.2: Update README
-- Replace the manual "Azure Setup" section with instructions to run `infra/setup.sh`
-- Keep DNS setup as manual step with clear instructions
-- Document script prerequisites (`az` CLI logged in with admin permissions)
+### Task 8.1: Infrastructure setup script ✅
+### Task 8.2: Update README ✅
+### Task 8.3: Config injection ✅
 
-### Task 8.3: Config injection
-- **Update** `src/config.ts` — add support for reading config values from environment variables (fallback to hardcoded defaults)
-- Script outputs an `infra/.env` file that can be sourced, or values can be set in `src/config.ts` directly
+**Implementation notes:**
+- `infra/setup.sh` — idempotent bash script: pre-flight checks (`az` installed + logged in), creates resource group, two Entra ID app registrations (Deploy Plugin with public client flow + `app_publisher` role, Published Apps with redirect URI + `app_subscriber` role), dashboard SWA, RBAC (Contributor on RG), auto-discovers DNS zone resource group. Outputs `infra/.env` with all `DEPLOY_AGENT_*` env vars. Prints manual DNS and user assignment instructions.
+- `README.md` — replaced manual 5-step Azure Setup with `infra/setup.sh` instructions. Config section now references env vars table. DNS remains manual step.
+- `src/config.ts` — `buildConfig()` reads 7 values from `DEPLOY_AGENT_*` env vars (`TENANT_ID`, `CLIENT_ID`, `SUBSCRIPTION_ID`, `RESOURCE_GROUP`, `DNS_ZONE`, `DNS_RESOURCE_GROUP`, `LOCATION`) with hardcoded defaults. `config` export built at module load time.
+- `test/config.test.ts` — 10 tests: defaults, all 7 env var overrides, non-configurable values preserved, export consistency.
+- `.gitignore` — added `infra/.env` (contains real credentials).
 
 ---
 
