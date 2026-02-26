@@ -49,6 +49,11 @@ deploy_agent/
 │   ├── auth/
 │   ├── azure/
 │   └── deploy/
+├── infra/
+│   └── setup.sh                 # Azure IaC setup script (az CLI)
+├── .github/
+│   └── workflows/
+│       └── ci.yml               # CI: ubuntu + windows, Node 22
 ├── dist/                        # Compiled JS (gitignored)
 ├── package.json                 # devDependencies only: typescript, @types/node
 ├── tsconfig.json
@@ -115,18 +120,20 @@ deploy_agent/
 
 ---
 
-## Batch 4: ZIP Creation + File Exclusion + .deploy.json
+## Batch 4: ZIP Creation + File Exclusion + .deploy.json ✅ COMPLETE
 
 **Goal:** Can ZIP a local folder (respecting deny-list), read/write .deploy.json.
 
-### Task 4.1: File exclusion deny-list (TDD)
-- **Implement** `src/deploy/deny-list.ts`: hardcoded `DENIED_PATTERNS` (.env, .git/, node_modules/, .deploy.json, .claude/, *.pem, *.key, etc.), `shouldExclude(path)`, `collectFiles(rootDir)`
+**Status:** All 3 tasks done. 127 tests pass (45 new). Deny-list, ZIP creation, and .deploy.json management implemented.
 
-### Task 4.2: ZIP creation (TDD)
-- **Implement** `src/deploy/zip.ts`: `createZipBuffer(rootDir, files)` — manual ZIP format using `zlib.deflateRawSync`. Local file headers + central directory + EOCD.
+### Task 4.1: File exclusion deny-list (TDD) ✅
+### Task 4.2: ZIP creation (TDD) ✅
+### Task 4.3: .deploy.json management (TDD) ✅
 
-### Task 4.3: .deploy.json management (TDD)
-- **Implement** `src/deploy/deploy-json.ts`: `readDeployConfig`, `writeDeployConfig`, `generateSlug(appName)` (lowercase, hyphens, strip special chars, max 60 chars)
+**Implementation notes:**
+- `src/deploy/deny-list.ts` — `DENIED_PATTERNS` array with 8 patterns (.env*, .git/, node_modules/, .deploy.json, .claude/, *.pem, *.key, .DS_Store). `shouldExclude(path)` matches directory prefixes, extensions, exact basenames. `collectFiles(rootDir)` walks recursively, skips excluded dirs early, returns sorted relative paths with forward slashes.
+- `src/deploy/zip.ts` — `createZipBuffer(rootDir, files)` builds manual ZIP: local file headers + deflateRawSync compressed data + central directory + EOCD. Uses `zlib.crc32` (Node 22+). README updated to require Node.js 22+.
+- `src/deploy/deploy-json.ts` — `DeployConfig` interface (appSlug, appName, appDescription, resourceId). `readDeployConfig` returns null on missing/invalid. `writeDeployConfig` saves formatted JSON. `generateSlug` lowercases, replaces non-alphanumeric with hyphens, max 60 chars.
 
 ---
 
@@ -173,6 +180,53 @@ deploy_agent/
 
 ---
 
+## Batch 8: Azure Infrastructure IaC
+
+**Goal:** Single idempotent `az` CLI script that provisions all Azure infrastructure. Replaces most of the manual "Azure Setup" section in the README.
+
+### Task 8.1: Infrastructure setup script
+- **Create** `infra/setup.sh` — idempotent bash script using `az` CLI
+- Pre-flight checks: verify `az` is installed and logged in, verify subscription access
+- **Resource group:** `az group create --name rg-published-apps --location westeurope` (skip if exists)
+- **App registration "Deploy Plugin":** create with `az ad app create`, enable public client flow (`--enable-id-token-issuance false --is-fallback-public-client true`), add API permission `Azure Service Management / user_impersonation`, create `app_publisher` app role
+- **App registration "Published Apps":** create with `az ad app create`, add redirect URI `https://apps.env.fidoo.cloud/.auth/login/aad/callback`, create `app_subscriber` app role
+- **Dashboard SWA:** create the dashboard Static Web App (`apps` slug) in the resource group using `az staticwebapp create`
+- **RBAC:** assign Contributor role on the resource group to the Deploy Plugin service principal
+- **Output:** print all config values (tenantId, clientId, subscriptionId, resourceGroup, dnsResourceGroup) formatted for `src/config.ts`
+- **DNS:** print manual instructions for CNAME setup referencing existing DNS zone
+
+### Task 8.2: Update README
+- Replace the manual "Azure Setup" section with instructions to run `infra/setup.sh`
+- Keep DNS setup as manual step with clear instructions
+- Document script prerequisites (`az` CLI logged in with admin permissions)
+
+### Task 8.3: Config injection
+- **Update** `src/config.ts` — add support for reading config values from environment variables (fallback to hardcoded defaults)
+- Script outputs an `infra/.env` file that can be sourced, or values can be set in `src/config.ts` directly
+
+---
+
+## Batch 9: Windows Support + CI
+
+**Goal:** Full Windows compatibility. CI pipeline verifying both platforms.
+
+### Task 9.1: Token store Windows fix
+- `src/auth/token-store.ts` — keep `mode: 0o600` call (harmless on Windows, Node ignores it)
+- `test/auth/token-store.test.ts` — conditionally skip the permission assertion on `process.platform === "win32"`
+- Clean up unused `symlink` import in `test/deploy/deny-list.test.ts`
+
+### Task 9.2: Cross-platform test verification
+- Run full test suite, verify no other platform-specific assumptions
+- Check all path handling uses `node:path` + forward-slash normalization
+- Verify `os.homedir()` / `os.tmpdir()` usage is correct
+
+### Task 9.3: GitHub Actions CI
+- **Create** `.github/workflows/ci.yml` — matrix strategy: `ubuntu-latest` + `windows-latest`, Node.js 22
+- Steps: checkout, setup-node, npm install, npm run build, npm test
+- Trigger on push to main + pull requests
+
+---
+
 ## Key Technical Decisions
 
 1. **No MCP SDK** — JSON-RPC 2.0 over stdio is ~100-150 lines. Avoids `@modelcontextprotocol/sdk` dependency.
@@ -180,6 +234,8 @@ deploy_agent/
 3. **macOS Keychain via `security` CLI** — zero-dep token storage using `child_process.execSync`. File fallback with 0600 permissions.
 4. **Node.js built-in test runner** (`node:test`) — zero test framework dependency.
 5. **Skill (not command)** — triggers naturally from conversation ("deploy my app") vs requiring a slash command.
+6. **Idempotent IaC** — single `az` CLI script checks resource existence before creating. Safe to re-run.
+7. **Cross-platform** — paths normalized to forward slashes in deploy modules. Token store permissions gracefully degrade on Windows.
 
 ## Verification
 
@@ -189,4 +245,5 @@ Final verification:
 1. Install plugin locally: add to `.claude/settings.local.json`
 2. Start Claude Code session, verify MCP tools appear
 3. Test skill triggers on "deploy my app"
-4. Full deploy flow against real Azure (requires Entra ID app registration setup)
+4. Full deploy flow against real Azure (run `infra/setup.sh` first)
+5. CI green on both Ubuntu and Windows

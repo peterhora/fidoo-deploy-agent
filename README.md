@@ -4,7 +4,7 @@ Claude Code plugin for deploying static HTML/JS apps to Azure Static Web Apps wi
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 22+
 - An Azure subscription with a resource group for Static Web Apps
 - An Azure DNS zone for custom domains
 - Two Entra ID app registrations (see Azure Setup below)
