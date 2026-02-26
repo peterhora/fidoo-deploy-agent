@@ -35,23 +35,4 @@ describe("tool registry", () => {
     });
   }
 
-  const STUB_TOOLS = EXPECTED_TOOLS.filter(
-    (t) => !t.startsWith("auth_") && t !== "app_deploy" && t !== "dashboard_rebuild"
-  );
-
-  it("non-auth tool handlers return not-implemented text content", async () => {
-    for (const name of STUB_TOOLS) {
-      const tool = toolRegistry.get(name)!;
-      const result = await tool.handler({});
-      assert.ok(
-        Array.isArray(result.content),
-        `${name}: result must have content array`
-      );
-      assert.equal(result.content[0].type, "text");
-      assert.ok(
-        result.content[0].text.includes("Not implemented"),
-        `${name}: stub should say not implemented`
-      );
-    }
-  });
 });
