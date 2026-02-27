@@ -188,9 +188,10 @@ else
   ok "SWA '$SWA_NAME' created"
 fi
 
-# ── 5. RBAC ──────────────────────────────────────────────────────────────────
+# ── 5. Service Principal ─────────────────────────────────────────────────────
+# Needed for admin-consent grant. RBAC roles go on the security group below,
+# not on the SP — the plugin uses delegated (user) tokens via device code flow.
 
-# Create a service principal for the Deploy Plugin app if it doesn't exist
 info "Checking service principal for '$DEPLOY_PLUGIN_APP_NAME'..."
 DEPLOY_PLUGIN_SP_ID=$(az ad sp list --filter "appId eq '$DEPLOY_PLUGIN_APP_ID'" --query "[0].id" -o tsv 2>/dev/null || true)
 
@@ -202,29 +203,7 @@ else
   ok "Service principal already exists (objectId: $DEPLOY_PLUGIN_SP_ID)"
 fi
 
-# Assign Contributor on the resource group (idempotent — az role assignment create is already idempotent)
-RG_ID=$(az group show --name "$RESOURCE_GROUP" --query id -o tsv)
-
-info "Assigning Contributor role on '$RESOURCE_GROUP'..."
-az role assignment create \
-  --assignee "$DEPLOY_PLUGIN_APP_ID" \
-  --role "Contributor" \
-  --scope "$RG_ID" \
-  --output none 2>/dev/null || true
-ok "Contributor role assigned"
-
-# Assign Storage Blob Data Contributor on the storage account
-STORAGE_ID=$(az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
-
-info "Assigning Storage Blob Data Contributor on '$STORAGE_ACCOUNT'..."
-az role assignment create \
-  --assignee "$DEPLOY_PLUGIN_APP_ID" \
-  --role "Storage Blob Data Contributor" \
-  --scope "$STORAGE_ID" \
-  --output none 2>/dev/null || true
-ok "Storage Blob Data Contributor role assigned"
-
-# ── 6. Security Group ────────────────────────────────────────────────────────
+# ── 6. Security Group & RBAC ───────────────────────────────────────────────
 
 GROUP_NAME="fi-aiapps-pub"
 
@@ -243,6 +222,8 @@ else
 fi
 
 # Assign Storage Blob Data Contributor on the storage account to the group
+STORAGE_ID=$(az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
+
 info "Assigning Storage Blob Data Contributor on '$STORAGE_ACCOUNT' to group '$GROUP_NAME'..."
 az role assignment create \
   --assignee-object-id "$GROUP_ID" \
