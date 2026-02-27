@@ -5,7 +5,8 @@ Claude Code plugin for deploying static HTML/JS apps to Azure Static Web Apps wi
 ## Install
 
 ```bash
-claude plugin add <repo-url>
+/plugin marketplace add peterhora/fidoo-deploy-agent
+/plugin install fidoo-deploy-agent@fidoo-deploy
 ```
 
 That's it. The `dist/` folder is shipped in the repo, so no build step is needed. Claude Code auto-discovers the plugin manifest and MCP server.
