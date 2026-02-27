@@ -22,11 +22,13 @@ MCP server plugin for Claude Code that deploys static HTML/JS apps to a single A
 
 **Tool pattern:** Each tool in `src/tools/` exports `definition: ToolDefinition` (name, description, inputSchema) and `handler: ToolHandler` (async function returning `{ content: [{type: "text", text: string}], isError?: boolean }`). All 8 tools are registered in `src/tools/index.ts`: `auth_login`, `auth_poll`, `auth_status`, `app_deploy`, `app_delete`, `app_list`, `app_info`, `app_update_info`.
 
-**Auth flow:** OAuth2 device code flow via `src/auth/device-code.ts`. Tokens cached to `~/.deploy-agent/tokens.json` (mode 0600). Override dir with `DEPLOY_AGENT_TOKEN_DIR` env var (used in tests).
+**Auth flow:** OAuth2 device code flow via `src/auth/device-code.ts`. Two scoped tokens: ARM (for SWA management) and storage (for blob operations), both obtained from a single refresh token. Tokens cached to `~/.deploy-agent/tokens.json` (mode 0600). Override dir with `DEPLOY_AGENT_TOKEN_DIR` env var (used in tests).
 
 **Azure layer:** `src/azure/rest-client.ts` wraps `fetch` with ARM base URL, Bearer header, and api-version. Throws `AzureError` with `.status` and `.code` on non-2xx. `src/azure/static-web-apps.ts` manages SWA deployment. `src/azure/blob.ts` handles blob upload/download/delete and registry operations against Azure Blob Storage.
 
-**Deploy flow:** `collectFiles` (deny-list) → blob upload (`src/azure/blob.ts`) → registry update (`src/deploy/registry.ts`) → `assembleSite` (`src/deploy/assemble.ts`: downloads all apps from blob, generates dashboard HTML) → `createZipBuffer` → deploy ZIP to single SWA via `src/deploy/site-deploy.ts`.
+**Deploy flow:** `collectFiles` (deny-list) → blob upload (`src/azure/blob.ts`) → registry update (`src/deploy/registry.ts`) → `assembleSite` (`src/deploy/assemble.ts`: downloads all apps from blob, generates dashboard HTML) → deploy assembled dir to SWA via StaticSitesClient binary (`src/deploy/swa-client.ts` — auto-downloaded and cached in `~/.swa/deploy/`).
+
+**Plugin manifest:** `.claude-plugin/plugin.json` registers this as a Claude Code MCP plugin. Skills live in `skills/`.
 
 **Registry:** `registry.json` in Azure Blob Storage is the source of truth for app metadata (slug, title, description, version). Updated on every deploy/delete/update-info.
 
@@ -53,5 +55,5 @@ MCP server plugin for Claude Code that deploys static HTML/JS apps to a single A
 - **Node.js 22+ required.** Uses `zlib.crc32`.
 - **rootDir is `.`** (not `./src`), so compiled output mirrors source: `dist/src/`, `dist/test/`.
 - **Test runner:** `node:test` + `node:assert/strict`. No test framework.
-- **Test mocking:** `test/helpers/mock-fetch.ts` provides `installMockFetch`/`restoreFetch`/`mockFetch`/`getFetchCalls` for intercepting global `fetch`. Tool tests use temp dirs for token storage with `DEPLOY_AGENT_TOKEN_DIR`.
+- **Test mocking:** Two mock helpers — `test/helpers/mock-fetch.ts` (`installMockFetch`/`restoreFetch`/`mockFetch`/`getFetchCalls`) for intercepting global `fetch`, and `test/helpers/mock-swa-deploy.ts` (`listSecretsMatcher`/`mockExecFile`) for SWA binary deployment. Tool tests use temp dirs for token storage via `DEPLOY_AGENT_TOKEN_DIR`. SWA mock requires `mock.restoreAll()` in `afterEach`.
 - **TDD workflow.** Write tests first, verify they fail, then implement.
