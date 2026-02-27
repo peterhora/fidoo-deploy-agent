@@ -94,7 +94,22 @@ az ad app permission add \
   --id "$DEPLOY_PLUGIN_APP_ID" \
   --api "797f4846-ba00-4fd7-ba43-dac1f8f63013" \
   --api-permissions "41094075-9dad-400e-a0bd-54e686782033=Scope" 2>/dev/null || true
-ok "API permission configured"
+ok "ARM API permission configured"
+
+# Add API permission: Azure Storage / user_impersonation
+# Resource App ID for Azure Storage: e406a681-f3d4-42a8-90b6-c2b029497af1
+# Permission ID for user_impersonation: 03e0da56-190b-40ad-a80c-ea378c433f7f
+info "Adding API permission (Azure Storage / user_impersonation)..."
+az ad app permission add \
+  --id "$DEPLOY_PLUGIN_APP_ID" \
+  --api "e406a681-f3d4-42a8-90b6-c2b029497af1" \
+  --api-permissions "03e0da56-190b-40ad-a80c-ea378c433f7f=Scope" 2>/dev/null || true
+ok "Storage API permission configured"
+
+# Grant admin consent for all configured API permissions
+info "Granting admin consent for API permissions..."
+az ad app permission admin-consent --id "$DEPLOY_PLUGIN_APP_ID" 2>/dev/null || true
+ok "Admin consent granted"
 
 # Create app_publisher app role (idempotent — check if it exists first)
 info "Checking app_publisher role..."

@@ -37,7 +37,9 @@ az login
 ./infra/setup.sh
 ```
 
-The script is idempotent and creates: resource group `rg-published-apps`, app registration "Deploy Plugin", storage account `stpublishedapps` with `app-content` container, Static Web App `swa-ai-apps`, and RBAC assignments.
+The script is idempotent and creates: resource group `rg-published-apps`, app registration "Deploy Plugin" (with API permissions for Azure Service Management and Azure Storage), storage account `stpublishedapps` with `app-content` container, Static Web App `swa-ai-apps`, RBAC assignments, and grants admin consent for all API permissions.
+
+**Note:** The admin consent step (`az ad app permission admin-consent`) requires Global Administrator or Privileged Role Administrator. If it fails, grant consent manually in the Azure Portal: **Entra ID** > **App registrations** > **Deploy Plugin** > **API permissions** > **Grant admin consent**. Both Azure Service Management and Azure Storage `user_impersonation` permissions must be consented.
 
 DNS: CNAME `ai-apps.env.fidoo.cloud` pointing to the SWA default hostname, then add the custom domain to the SWA.
 
