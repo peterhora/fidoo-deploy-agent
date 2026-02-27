@@ -1,0 +1,36 @@
+export declare function buildConfig(): {
+    tenantId: string;
+    clientId: string;
+    subscriptionId: string;
+    resourceGroup: string;
+    storageAccount: string;
+    containerName: string;
+    appDomain: string;
+    swaSlug: string;
+    scope: string;
+    armBaseUrl: string;
+    entraBaseUrl: string;
+    swaApiVersion: string;
+    storageApiVersion: string;
+    location: string;
+    swaSkuName: string;
+    swaSkuTier: string;
+};
+export declare const config: {
+    tenantId: string;
+    clientId: string;
+    subscriptionId: string;
+    resourceGroup: string;
+    storageAccount: string;
+    containerName: string;
+    appDomain: string;
+    swaSlug: string;
+    scope: string;
+    armBaseUrl: string;
+    entraBaseUrl: string;
+    swaApiVersion: string;
+    storageApiVersion: string;
+    location: string;
+    swaSkuName: string;
+    swaSkuTier: string;
+};
