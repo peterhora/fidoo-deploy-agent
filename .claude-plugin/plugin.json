@@ -2,10 +2,5 @@
   "name": "deploy-agent",
   "version": "0.1.0",
   "description": "Deploy static HTML/JS apps to Azure Static Web Apps with Entra ID authentication",
-  "skills": [
-    {
-      "name": "deploy",
-      "path": "skills/deploy/SKILL.md"
-    }
-  ]
+  "skills": "./skills/"
 }
