@@ -3,11 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  installMockFetch,
-  restoreFetch,
-  mockFetch,
-} from "../helpers/mock-fetch.js";
+import { installMockFetch, restoreFetch, mockFetch } from "../helpers/mock-fetch.js";
 import { handler } from "../../src/tools/app-list.js";
 
 let tokenDir: string;
@@ -28,14 +24,13 @@ async function setupTokenDir(tokens?: object): Promise<void> {
   }
 }
 
-function makeSwa(name: string, tags: Record<string, string> = {}) {
-  return {
-    id: `/subscriptions/x/resourceGroups/rg/providers/Microsoft.Web/staticSites/${name}`,
-    name,
-    location: "westeurope",
-    properties: { defaultHostname: `${name}.azurestaticapps.net` },
-    tags,
-  };
+function mockRegistry(apps: Array<{ slug: string; name: string; description: string; deployedAt: string; deployedBy: string }>) {
+  mockFetch((url, init) => {
+    if (url.includes("registry.json") && (!init?.method || init.method === "GET")) {
+      return { status: 200, body: { apps } };
+    }
+    return undefined;
+  });
 }
 
 describe("app_list", () => {
@@ -50,7 +45,7 @@ describe("app_list", () => {
   });
 
   it("returns error when not authenticated", async () => {
-    await setupTokenDir(); // No tokens
+    await setupTokenDir();
     const result = await handler({});
     assert.ok(result.isError);
     assert.ok(result.content[0].text.includes("Not authenticated"));
@@ -63,14 +58,9 @@ describe("app_list", () => {
     assert.ok(result.content[0].text.toLowerCase().includes("expired"));
   });
 
-  it("returns empty list when no apps deployed", async () => {
+  it("returns empty list when no apps in registry", async () => {
     await setupTokenDir(mockTokens());
-    mockFetch((url) => {
-      if (url.includes("/staticSites?") || url.includes("/staticSites&")) {
-        return { status: 200, body: { value: [makeSwa("apps")] } };
-      }
-      return undefined;
-    });
+    mockRegistry([]);
 
     const result = await handler({});
     assert.ok(!result.isError);
@@ -78,31 +68,12 @@ describe("app_list", () => {
     assert.deepEqual(parsed.apps, []);
   });
 
-  it("lists apps excluding the dashboard SWA", async () => {
+  it("lists apps with path-based URLs", async () => {
     await setupTokenDir(mockTokens());
-    mockFetch((url) => {
-      if (url.includes("/staticSites?") || url.includes("/staticSites&")) {
-        return {
-          status: 200,
-          body: {
-            value: [
-              makeSwa("apps"), // dashboard — should be excluded
-              makeSwa("my-app", {
-                appName: "My App",
-                appDescription: "A cool app",
-                deployedAt: "2026-01-01T00:00:00.000Z",
-              }),
-              makeSwa("another-app", {
-                appName: "Another App",
-                appDescription: "Another cool app",
-                deployedAt: "2026-02-01T00:00:00.000Z",
-              }),
-            ],
-          },
-        };
-      }
-      return undefined;
-    });
+    mockRegistry([
+      { slug: "another-app", name: "Another App", description: "Another cool app", deployedAt: "2026-02-01T00:00:00.000Z", deployedBy: "u" },
+      { slug: "my-app", name: "My App", description: "A cool app", deployedAt: "2026-01-01T00:00:00.000Z", deployedBy: "u" },
+    ]);
 
     const result = await handler({});
     assert.ok(!result.isError);
@@ -110,39 +81,27 @@ describe("app_list", () => {
     assert.equal(parsed.apps.length, 2);
     assert.equal(parsed.apps[0].slug, "another-app");
     assert.equal(parsed.apps[0].name, "Another App");
-    assert.equal(parsed.apps[0].url, "https://another-app.env.fidoo.cloud");
+    assert.equal(parsed.apps[0].url, "https://ai-apps.env.fidoo.cloud/another-app/");
     assert.equal(parsed.apps[1].slug, "my-app");
     assert.equal(parsed.apps[1].name, "My App");
+    assert.equal(parsed.apps[1].url, "https://ai-apps.env.fidoo.cloud/my-app/");
   });
 
-  it("uses slug as name fallback when tags are missing", async () => {
+  it("returns empty list when registry.json does not exist", async () => {
     await setupTokenDir(mockTokens());
-    mockFetch((url) => {
-      if (url.includes("/staticSites?") || url.includes("/staticSites&")) {
-        return {
-          status: 200,
-          body: { value: [makeSwa("apps"), makeSwa("no-tags")] },
-        };
-      }
-      return undefined;
-    });
+    mockFetch(() => ({ status: 404, body: null }));
 
     const result = await handler({});
     assert.ok(!result.isError);
     const parsed = JSON.parse(result.content[0].text);
-    assert.equal(parsed.apps.length, 1);
-    assert.equal(parsed.apps[0].name, "no-tags");
-    assert.equal(parsed.apps[0].description, "");
+    assert.deepEqual(parsed.apps, []);
   });
 
-  it("propagates Azure API errors", async () => {
+  it("propagates errors from blob storage", async () => {
     await setupTokenDir(mockTokens());
     mockFetch((url) => {
-      if (url.includes("/staticSites?") || url.includes("/staticSites&")) {
-        return {
-          status: 403,
-          body: { error: { code: "AuthorizationFailed", message: "Forbidden" } },
-        };
+      if (url.includes("registry.json")) {
+        return { status: 403, body: "Forbidden" };
       }
       return undefined;
     });

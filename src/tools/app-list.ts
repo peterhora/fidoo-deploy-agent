@@ -1,11 +1,11 @@
 import type { ToolDefinition, ToolHandler } from "./index.js";
 import { loadTokens, isTokenExpired } from "../auth/token-store.js";
 import { config } from "../config.js";
-import { listStaticWebApps } from "../azure/static-web-apps.js";
+import { loadRegistry } from "../deploy/registry.js";
 
 export const definition: ToolDefinition = {
   name: "app_list",
-  description: "List all deployed apps in the resource group with their names, slugs, and URLs.",
+  description: "List all deployed apps with their names, slugs, and URLs.",
   inputSchema: {
     type: "object",
     properties: {},
@@ -29,18 +29,15 @@ export const handler: ToolHandler = async (_args) => {
   }
 
   try {
-    const swas = await listStaticWebApps(tokens.access_token);
+    const registry = await loadRegistry(tokens.access_token);
 
-    const apps = swas
-      .filter((swa) => swa.name !== config.dashboardSlug)
-      .map((swa) => ({
-        slug: swa.name,
-        name: swa.tags?.appName || swa.name,
-        description: swa.tags?.appDescription || "",
-        url: `https://${swa.name}.${config.dnsZone}`,
-        deployedAt: swa.tags?.deployedAt || "",
-      }))
-      .sort((a, b) => a.slug.localeCompare(b.slug));
+    const apps = registry.apps.map((app) => ({
+      slug: app.slug,
+      name: app.name,
+      description: app.description,
+      url: `https://${config.appDomain}/${app.slug}/`,
+      deployedAt: app.deployedAt,
+    }));
 
     return {
       content: [{ type: "text", text: JSON.stringify({ apps }) }],
