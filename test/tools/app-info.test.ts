@@ -28,17 +28,13 @@ async function setupTokenDir(tokens?: object): Promise<void> {
   }
 }
 
-function makeSwa(name: string, tags: Record<string, string> = {}) {
-  return {
-    id: `/subscriptions/x/resourceGroups/rg/providers/Microsoft.Web/staticSites/${name}`,
-    name,
-    location: "westeurope",
-    properties: {
-      defaultHostname: `${name}.azurestaticapps.net`,
-      status: "Ready",
-    },
-    tags,
-  };
+function mockRegistry(apps: Array<{ slug: string; name: string; description: string; deployedAt: string; deployedBy: string }>) {
+  mockFetch((url, init) => {
+    if (url.includes("registry.json") && (!init?.method || init.method === "GET")) {
+      return { status: 200, body: { apps } };
+    }
+    return undefined;
+  });
 }
 
 describe("app_info", () => {
@@ -73,23 +69,11 @@ describe("app_info", () => {
     assert.ok(result.content[0].text.includes("app_slug"));
   });
 
-  it("returns app details with tags", async () => {
+  it("returns app details from registry", async () => {
     await setupTokenDir(mockTokens());
-    const swa = makeSwa("my-app", {
-      appName: "My App",
-      appDescription: "A cool app",
-      deployedAt: "2026-01-15T10:30:00.000Z",
-    });
-
-    mockFetch((url, init) => {
-      if (
-        url.includes("/staticSites/my-app") &&
-        (!init?.method || init.method === "GET")
-      ) {
-        return { status: 200, body: swa };
-      }
-      return undefined;
-    });
+    mockRegistry([
+      { slug: "my-app", name: "My App", description: "A cool app", deployedAt: "2026-01-15T10:30:00.000Z", deployedBy: "alice@fidoo.cloud" },
+    ]);
 
     const result = await handler({ app_slug: "my-app" });
     assert.ok(!result.isError, `Expected success but got: ${result.content[0].text}`);
@@ -97,48 +81,30 @@ describe("app_info", () => {
     assert.equal(parsed.slug, "my-app");
     assert.equal(parsed.name, "My App");
     assert.equal(parsed.description, "A cool app");
-    assert.equal(parsed.url, "https://my-app.env.fidoo.cloud");
-    assert.equal(parsed.status, "Ready");
+    assert.equal(parsed.url, "https://ai-apps.env.fidoo.cloud/my-app/");
     assert.equal(parsed.deployedAt, "2026-01-15T10:30:00.000Z");
-    assert.ok(parsed.defaultHostname);
+    assert.equal(parsed.deployedBy, "alice@fidoo.cloud");
   });
 
-  it("returns 404 error when app not found", async () => {
+  it("returns error when app not found in registry", async () => {
     await setupTokenDir(mockTokens());
-    mockFetch((url, init) => {
-      if (
-        url.includes("/staticSites/no-such-app") &&
-        (!init?.method || init.method === "GET")
-      ) {
-        return {
-          status: 404,
-          body: { error: { code: "ResourceNotFound", message: "Not found" } },
-        };
-      }
-      return undefined;
-    });
+    mockRegistry([]);
 
     const result = await handler({ app_slug: "no-such-app" });
     assert.ok(result.isError);
-    assert.ok(result.content[0].text.includes("not found") || result.content[0].text.includes("Not found"));
+    assert.ok(result.content[0].text.includes("not found"));
   });
 
-  it("uses fallback values when tags are missing", async () => {
+  it("returns error when registry download fails", async () => {
     await setupTokenDir(mockTokens());
-    mockFetch((url, init) => {
-      if (
-        url.includes("/staticSites/bare-app") &&
-        (!init?.method || init.method === "GET")
-      ) {
-        return { status: 200, body: makeSwa("bare-app") };
+    mockFetch((url) => {
+      if (url.includes("registry.json")) {
+        return { status: 403, body: "Forbidden" };
       }
       return undefined;
     });
 
-    const result = await handler({ app_slug: "bare-app" });
-    assert.ok(!result.isError);
-    const parsed = JSON.parse(result.content[0].text);
-    assert.equal(parsed.name, "bare-app");
-    assert.equal(parsed.description, "");
+    const result = await handler({ app_slug: "my-app" });
+    assert.ok(result.isError);
   });
 });

@@ -1,8 +1,7 @@
 import type { ToolDefinition, ToolHandler } from "./index.js";
 import { loadTokens, isTokenExpired } from "../auth/token-store.js";
 import { config } from "../config.js";
-import { getStaticWebApp } from "../azure/static-web-apps.js";
-import { AzureError } from "../azure/rest-client.js";
+import { loadRegistry } from "../deploy/registry.js";
 
 export const definition: ToolDefinition = {
   name: "app_info",
@@ -45,31 +44,32 @@ export const handler: ToolHandler = async (args) => {
   }
 
   try {
-    const swa = await getStaticWebApp(tokens.access_token, appSlug);
+    const registry = await loadRegistry(tokens.access_token);
+    const app = registry.apps.find((a) => a.slug === appSlug);
+
+    if (!app) {
+      return {
+        content: [{ type: "text", text: `App "${appSlug}" not found.` }],
+        isError: true,
+      };
+    }
 
     return {
       content: [
         {
           type: "text",
           text: JSON.stringify({
-            slug: swa.name,
-            name: swa.tags?.appName || swa.name,
-            description: swa.tags?.appDescription || "",
-            url: `https://${swa.name}.${config.dnsZone}`,
-            status: (swa.properties as { status?: string }).status || "Unknown",
-            deployedAt: swa.tags?.deployedAt || "",
-            defaultHostname: (swa.properties as { defaultHostname?: string }).defaultHostname || "",
+            slug: app.slug,
+            name: app.name,
+            description: app.description,
+            url: `https://${config.appDomain}/${app.slug}/`,
+            deployedAt: app.deployedAt,
+            deployedBy: app.deployedBy,
           }),
         },
       ],
     };
   } catch (err) {
-    if (err instanceof AzureError && err.status === 404) {
-      return {
-        content: [{ type: "text", text: `App "${appSlug}" not found.` }],
-        isError: true,
-      };
-    }
     const message = err instanceof Error ? err.message : String(err);
     return {
       content: [{ type: "text", text: `Failed to get app info: ${message}` }],
