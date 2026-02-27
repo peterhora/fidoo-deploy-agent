@@ -12,19 +12,20 @@ That's it. The `dist/` folder is shipped in the repo, so no build step is needed
 
 ## Azure Requirements
 
-### For end users (publishers)
-
-Each user who deploys apps needs:
+### For publishers (deploy apps)
 
 1. **A Fidoo FX Test tenant account** (`@FidooFXtest.onmicrosoft.com`)
-2. **Azure RBAC roles** assigned by an admin on the relevant resources:
+2. **Membership in the `fi-aiapps-pub` security group** — an admin adds you with:
 
-| Role | Scope | Why |
-|------|-------|-----|
-| **Storage Blob Data Contributor** | Storage account `stpublishedapps` | Read/write/delete app files and registry in blob storage |
-| **Contributor** on the SWA | Static Web App `swa-ai-apps` | Read SWA properties, list deployment secrets, deploy ZIP |
+```bash
+az ad group member add --group fi-aiapps-pub --member-id <user-object-id>
+```
 
-3. *(Optional)* **app_publisher** app role on the "Deploy Plugin" enterprise app — for future role-based access control within the plugin.
+The group has the required Azure RBAC roles (Storage Blob Data Contributor on storage, Contributor on SWA).
+
+### For viewers (browse apps)
+
+Any tenant member can view deployed apps — just log in with Entra ID when prompted. No group membership needed.
 
 ### For admins (one-time setup)
 
@@ -39,20 +40,14 @@ The script is idempotent and creates: resource group `rg-published-apps`, app re
 
 DNS: CNAME `ai-apps.env.fidoo.cloud` pointing to the SWA default hostname, then add the custom domain to the SWA.
 
-### Granting access to a new user
+### Onboarding a new publisher
 
 ```bash
-# Storage Blob Data Contributor on the storage account
-az role assignment create \
-  --assignee user@FidooFXtest.onmicrosoft.com \
-  --role "Storage Blob Data Contributor" \
-  --scope "/subscriptions/910c52ef-044b-4bd1-b5e9-84700289fca7/resourceGroups/rg-published-apps/providers/Microsoft.Storage/storageAccounts/stpublishedapps"
+# Get the user's object ID
+az ad user show --id user@FidooFXtest.onmicrosoft.com --query id -o tsv
 
-# Contributor on the SWA
-az role assignment create \
-  --assignee user@FidooFXtest.onmicrosoft.com \
-  --role "Contributor" \
-  --scope "/subscriptions/910c52ef-044b-4bd1-b5e9-84700289fca7/resourceGroups/rg-published-apps/providers/Microsoft.Web/staticSites/swa-ai-apps"
+# Add them to the publisher group
+az ad group member add --group fi-aiapps-pub --member-id <user-object-id>
 ```
 
 ## MCP Tools

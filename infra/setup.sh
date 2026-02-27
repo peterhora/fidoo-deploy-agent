@@ -209,7 +209,48 @@ az role assignment create \
   --output none 2>/dev/null || true
 ok "Storage Blob Data Contributor role assigned"
 
-# ── 6. Write infra/.env ──────────────────────────────────────────────────────
+# ── 6. Security Group ────────────────────────────────────────────────────────
+
+GROUP_NAME="fi-aiapps-pub"
+
+info "Checking security group '$GROUP_NAME'..."
+GROUP_ID=$(az ad group list --display-name "$GROUP_NAME" --query "[0].id" -o tsv 2>/dev/null || true)
+
+if [[ -n "$GROUP_ID" && "$GROUP_ID" != "None" ]]; then
+  ok "Security group '$GROUP_NAME' already exists (objectId: $GROUP_ID)"
+else
+  info "Creating security group '$GROUP_NAME'..."
+  GROUP_ID=$(az ad group create \
+    --display-name "$GROUP_NAME" \
+    --mail-nickname "$GROUP_NAME" \
+    --security-enabled true \
+    --query id -o tsv)
+  ok "Security group '$GROUP_NAME' created (objectId: $GROUP_ID)"
+fi
+
+# Assign Storage Blob Data Contributor on the storage account to the group
+info "Assigning Storage Blob Data Contributor on '$STORAGE_ACCOUNT' to group '$GROUP_NAME'..."
+az role assignment create \
+  --assignee-object-id "$GROUP_ID" \
+  --assignee-principal-type Group \
+  --role "Storage Blob Data Contributor" \
+  --scope "$STORAGE_ID" \
+  --output none 2>/dev/null || true
+ok "Storage Blob Data Contributor role assigned to group"
+
+# Assign Contributor on the SWA to the group
+SWA_ID=$(az staticwebapp show --name "$SWA_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
+
+info "Assigning Contributor on '$SWA_NAME' to group '$GROUP_NAME'..."
+az role assignment create \
+  --assignee-object-id "$GROUP_ID" \
+  --assignee-principal-type Group \
+  --role "Contributor" \
+  --scope "$SWA_ID" \
+  --output none 2>/dev/null || true
+ok "Contributor role assigned to group"
+
+# ── 7. Write infra/.env ──────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
@@ -260,6 +301,9 @@ echo "  Next steps:"
 echo "    1. Source the env file:  source infra/.env"
 echo "    2. Rebuild the plugin:  npm run build"
 echo ""
-echo "  Assign users:"
-echo "    - Publishers: Assign 'app_publisher' role on '$DEPLOY_PLUGIN_APP_NAME' enterprise app"
+echo "  Onboard publishers:"
+echo "    az ad group member add --group $GROUP_NAME --member-id <user-object-id>"
+echo ""
+echo "  View apps:"
+echo "    Any tenant member can view apps — Entra ID login is required."
 echo ""

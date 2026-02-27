@@ -39,6 +39,24 @@ describe("assembleSite", () => {
         const json = JSON.parse(await readFile(join(outDir, "registry.json"), "utf-8"));
         assert.equal(json.apps.length, 1);
     });
+    test("creates staticwebapp.config.json with auth routes", async () => {
+        mockFetch((url) => {
+            if (url.includes("comp=list")) {
+                return { status: 200, body: "<EnumerationResults><Blobs></Blobs></EnumerationResults>", headers: { "content-type": "application/xml" } };
+            }
+            return undefined;
+        });
+        const registry = { apps: [] };
+        await assembleSite("tok", registry, outDir);
+        const config = JSON.parse(await readFile(join(outDir, "staticwebapp.config.json"), "utf-8"));
+        assert.deepEqual(config.routes, [
+            { route: "/.auth/*", allowedRoles: ["anonymous"] },
+            { route: "/*", allowedRoles: ["authenticated"] },
+        ]);
+        assert.deepEqual(config.responseOverrides, {
+            "401": { redirect: "/.auth/login/aad", statusCode: 302 },
+        });
+    });
     test("downloads app files into slug subdirectory", async () => {
         mockFetch((url, init) => {
             if (url.includes("comp=list")) {
