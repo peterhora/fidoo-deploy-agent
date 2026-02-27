@@ -1,4 +1,4 @@
-import { stat, readFile } from "node:fs/promises";
+import { stat, readFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import type { ToolDefinition, ToolHandler, ToolResult } from "./index.js";
 import { loadTokens, isTokenExpired } from "../auth/token-store.js";
@@ -132,6 +132,29 @@ export const handler: ToolHandler = async (args) => {
     }
   } catch {
     return errorResult(`Folder does not exist: ${folder}`);
+  }
+
+  // Check for index.html in the root of the folder
+  try {
+    await access(join(folder, "index.html"));
+  } catch {
+    const files = await collectFiles(folder);
+    const nestedIndex = files.find((f) => f.endsWith("/index.html"));
+    let hint =
+      "No index.html found in the root of the deploy folder. " +
+      "The app will not load without a root index.html.\n\n";
+    if (nestedIndex) {
+      const subdir = join(folder, nestedIndex.substring(0, nestedIndex.lastIndexOf("/")));
+      hint +=
+        `Found index.html in "${nestedIndex}" — you may want to deploy the "${subdir}" subdirectory instead, ` +
+        `or move index.html to the root of "${folder}".`;
+    } else {
+      hint +=
+        `Files found: ${files.join(", ") || "(none)"}.\n\n` +
+        "If this is a build-based project, make sure to run the build step first " +
+        "(e.g. npm run build) and deploy the output directory (e.g. dist/ or build/).";
+    }
+    return errorResult(hint);
   }
 
   // Check auth

@@ -237,6 +237,68 @@ describe("app_deploy — first deploy", () => {
         assert.equal(entry.deployedBy, "alice@fidoo.cloud");
     });
 });
+describe("app_deploy — missing index.html warning", () => {
+    beforeEach(async () => {
+        installMockFetch();
+        mockExecFile();
+        await setupTokenDir(mockTokens());
+    });
+    afterEach(async () => {
+        restoreFetch();
+        mock.restoreAll();
+        delete process.env.DEPLOY_AGENT_TOKEN_DIR;
+        await rm(tokenDir, { recursive: true, force: true });
+        await rm(appDir, { recursive: true, force: true });
+    });
+    it("returns warning when folder has no index.html (first deploy)", async () => {
+        await setupAppDir({ "app.js": "console.log('hi')", "style.css": "body{}" });
+        const result = await handler({
+            folder: appDir,
+            app_name: "No Index",
+            app_description: "Missing index",
+        });
+        assert.ok(result.isError);
+        const text = result.content[0].text;
+        assert.ok(text.includes("index.html"), "Should mention index.html");
+        assert.ok(text.includes("app.js") || text.includes("style.css"), "Should list the files that were found");
+    });
+    it("returns warning when folder has no index.html (re-deploy)", async () => {
+        await setupAppDir({ "main.js": "console.log('hi')" });
+        await writeFile(join(appDir, ".deploy.json"), JSON.stringify({
+            appSlug: "no-index",
+            appName: "No Index",
+            appDescription: "Missing index",
+            resourceId: "",
+        }));
+        const result = await handler({ folder: appDir });
+        assert.ok(result.isError);
+        const text = result.content[0].text;
+        assert.ok(text.includes("index.html"), "Should mention index.html");
+    });
+    it("accepts index.html in root (no warning)", async () => {
+        await setupAppDir({ "index.html": "<h1>Hello</h1>" });
+        mockBlobAndDeployFlow("my-app", 404);
+        const result = await handler({
+            folder: appDir,
+            app_name: "My App",
+            app_description: "Has index",
+        });
+        assert.ok(!result.isError, `Expected success but got: ${result.content[0].text}`);
+    });
+    it("warns even if index.html exists in a subdirectory but not root", async () => {
+        await setupAppDir({ "sub/index.html": "<h1>Nested</h1>" });
+        const result = await handler({
+            folder: appDir,
+            app_name: "Nested Only",
+            app_description: "Nested index",
+        });
+        assert.ok(result.isError);
+        const text = result.content[0].text;
+        assert.ok(text.includes("index.html"), "Should mention index.html");
+        // Should hint about the subdirectory containing index.html
+        assert.ok(text.includes("sub"), "Should mention the subdirectory that has index.html");
+    });
+});
 describe("app_deploy — re-deploy", () => {
     beforeEach(async () => {
         installMockFetch();
