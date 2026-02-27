@@ -1,12 +1,14 @@
 /**
  * Integration test: full deploy lifecycle through tool handlers.
  *
- * Simulates a realistic sequence:
+ * Simulates a realistic sequence using the single-domain blob-based architecture:
  *   auth_status → auth_login → auth_poll → app_deploy (first) →
  *   app_list → app_info → app_update_info → app_deploy (re-deploy) →
  *   app_delete
  *
- * Uses mocked Azure APIs and temp directories for tokens and app files.
+ * All operations use blob storage + registry.json as the source of truth.
+ * No per-app SWA, DNS, or dashboard_rebuild — just blob upload, registry
+ * updates, and deploySite (assemble + zip + deploy to single SWA).
  */
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
@@ -36,16 +38,6 @@ function makeTestJwt(upn: string): string {
 
 const TEST_TOKEN = makeTestJwt("alice@fidoo.cloud");
 
-function makeSwa(name: string, tags: Record<string, string> = {}) {
-  return {
-    id: `/subscriptions/x/resourceGroups/rg/providers/Microsoft.Web/staticSites/${name}`,
-    name,
-    location: "westeurope",
-    properties: { defaultHostname: `${name}.azurestaticapps.net`, status: "Ready" },
-    tags,
-  };
-}
-
 async function callTool(name: string, args: Record<string, unknown> = {}) {
   const tool = toolRegistry.get(name);
   assert.ok(tool, `Tool "${name}" not found in registry`);
@@ -60,9 +52,15 @@ function parseResult(result: { content: Array<{ type: string; text: string }>; i
   }
 }
 
-describe("integration: full deploy lifecycle", () => {
+describe("integration: full deploy lifecycle (blob + registry)", () => {
+  // Stateful registry: tracks what the registry.json contains across operations
+  let currentRegistry: { apps: Array<{ slug: string; name: string; description: string; deployedAt: string; deployedBy: string }> };
+
   beforeEach(async () => {
     installMockFetch();
+
+    // Initially no registry exists
+    currentRegistry = { apps: [] };
 
     // Set up token dir (empty — not authenticated yet)
     tokenDir = await mkdtemp(join(tmpdir(), "int-token-"));
@@ -85,6 +83,118 @@ describe("integration: full deploy lifecycle", () => {
   });
 
   it("completes full lifecycle: check auth → login → poll → deploy → list → info → update → redeploy → delete", async () => {
+    // Whether this is the first registry GET (returns 404)
+    let registryExists = false;
+
+    // ---- Persistent blob + deploy mocks ----
+
+    // Upload blobs (PUT to blob storage — covers file uploads and registry saves)
+    mockFetch((url, init) => {
+      if (url.includes(".blob.core.windows.net") && init?.method === "PUT") {
+        // If this is a registry.json save, capture the saved content
+        if (url.includes("registry.json")) {
+          const body = init.body;
+          const json =
+            body instanceof Uint8Array
+              ? Buffer.from(body).toString("utf-8")
+              : typeof body === "string"
+                ? body
+                : String(body);
+          currentRegistry = JSON.parse(json);
+          registryExists = true;
+        }
+        return { status: 201, body: null };
+      }
+      return undefined;
+    });
+
+    // Download registry.json (GET blob) — returns current stateful registry
+    mockFetch((url, init) => {
+      if (
+        url.includes(".blob.core.windows.net") &&
+        url.includes("registry.json") &&
+        (!init?.method || init.method === "GET") &&
+        !url.includes("comp=list")
+      ) {
+        if (!registryExists) {
+          return { status: 404, body: null };
+        }
+        return {
+          status: 200,
+          body: JSON.stringify(currentRegistry),
+          headers: { "content-type": "application/octet-stream" },
+        };
+      }
+      return undefined;
+    });
+
+    // List blobs (for assembleSite) — returns blobs matching current registry apps
+    mockFetch((url) => {
+      if (url.includes("comp=list")) {
+        const blobEntries = currentRegistry.apps
+          .map((app) => `<Blob><Name>${app.slug}/index.html</Name></Blob>`)
+          .join("");
+        return {
+          status: 200,
+          body: `<EnumerationResults><Blobs>${blobEntries}</Blobs></EnumerationResults>`,
+          headers: { "content-type": "application/xml" },
+        };
+      }
+      return undefined;
+    });
+
+    // Download app blobs (for assembleSite — downloading individual app files)
+    mockFetch((url, init) => {
+      if (
+        url.includes(".blob.core.windows.net") &&
+        !url.includes("registry.json") &&
+        !url.includes("comp=list") &&
+        (!init?.method || init.method === "GET")
+      ) {
+        return {
+          status: 200,
+          body: "<h1>App</h1>",
+          headers: { "content-type": "application/octet-stream" },
+        };
+      }
+      return undefined;
+    });
+
+    // DELETE blobs (for app_delete)
+    mockFetch((url, init) => {
+      if (url.includes(".blob.core.windows.net") && init?.method === "DELETE") {
+        return { status: 202, body: null };
+      }
+      return undefined;
+    });
+
+    // getDeploymentToken (listSecrets)
+    mockFetch((url, init) => {
+      if (url.includes("listSecrets") && init?.method === "POST") {
+        return { status: 200, body: { properties: { apiKey: "deploy-key" } } };
+      }
+      return undefined;
+    });
+
+    // getStaticWebApp for the single SWA (hostname)
+    mockFetch((url, init) => {
+      if (url.includes("staticSites/ai-apps") && (!init?.method || init.method === "GET")) {
+        return {
+          status: 200,
+          body: { properties: { defaultHostname: "ai-apps.azurestaticapps.net" } },
+        };
+      }
+      return undefined;
+    });
+
+    // zipdeploy
+    mockFetch((url, init) => {
+      if (url.includes("zipdeploy") && init?.method === "POST") {
+        return { status: 200, body: null };
+      }
+      return undefined;
+    });
+
     // ---- Step 1: auth_status — should be not_authenticated ----
     const statusResult = await callTool("auth_status");
     const statusData = parseResult(statusResult);
@@ -141,112 +251,6 @@ describe("integration: full deploy lifecycle", () => {
     assert.equal(statusData2.status, "authenticated");
 
     // ---- Step 4: app_deploy — first deploy ----
-    // Mock Azure APIs for first deploy
-    let collisionChecked = false;
-    mockFetch((url, init) => {
-      if (
-        !collisionChecked &&
-        url.includes(`/staticSites/${SLUG}?`) &&
-        (!init?.method || init.method === "GET") &&
-        !url.includes("/listSecrets") &&
-        !url.includes("/config/")
-      ) {
-        collisionChecked = true;
-        return { status: 404, body: { error: { code: "ResourceNotFound", message: "Not found" } } };
-      }
-      return undefined;
-    });
-
-    mockFetch((url, init) => {
-      if (url.includes(`/staticSites/${SLUG}`) && init?.method === "PUT" && !url.includes("/config/")) {
-        return {
-          status: 200,
-          body: makeSwa(SLUG, { appName: "Budget Tracker", appDescription: "Track spending" }),
-        };
-      }
-      return undefined;
-    });
-
-    mockFetch((url, init) => {
-      if (url.includes("/listSecrets") && init?.method === "POST") {
-        return { status: 200, body: { properties: { apiKey: "deploy-key" } } };
-      }
-      return undefined;
-    });
-
-    mockFetch((url, init) => {
-      if (
-        url.includes(`/staticSites/${SLUG}?`) &&
-        (!init?.method || init.method === "GET") &&
-        !url.includes("/listSecrets") &&
-        !url.includes("/config/")
-      ) {
-        return {
-          status: 200,
-          body: makeSwa(SLUG, {
-            appName: "Budget Tracker",
-            appDescription: "Track spending",
-            deployedAt: new Date().toISOString(),
-          }),
-        };
-      }
-      return undefined;
-    });
-
-    mockFetch((url, init) => {
-      if (url.includes("zipdeploy") && init?.method === "POST") {
-        return { status: 200, body: {} };
-      }
-      return undefined;
-    });
-
-    mockFetch((url, init) => {
-      if (url.includes("/CNAME/") && init?.method === "PUT") {
-        return { status: 200, body: { id: "cname-id" } };
-      }
-      return undefined;
-    });
-
-    mockFetch((url, init) => {
-      if (url.includes("/authsettingsV2") && init?.method === "PUT") {
-        return { status: 200, body: { properties: {} } };
-      }
-      return undefined;
-    });
-
-    mockFetch((url, init) => {
-      if (url.includes(`/staticSites/${SLUG}`) && init?.method === "PATCH") {
-        return { status: 200, body: makeSwa(SLUG) };
-      }
-      return undefined;
-    });
-
-    // Dashboard mocks
-    mockFetch((url) => {
-      if (url.includes("/staticSites?") || url.includes("/staticSites&")) {
-        return {
-          status: 200,
-          body: {
-            value: [
-              makeSwa(SLUG, { appName: "Budget Tracker", appDescription: "Track spending", deployedAt: new Date().toISOString() }),
-            ],
-          },
-        };
-      }
-      return undefined;
-    });
-
-    mockFetch((url, init) => {
-      if (
-        url.includes("/staticSites/apps") &&
-        (!init?.method || init.method === "GET") &&
-        !url.includes("/listSecrets")
-      ) {
-        return { status: 200, body: makeSwa("apps") };
-      }
-      return undefined;
-    });
-
     const deployResult = await callTool("app_deploy", {
       folder: appDir,
       app_name: "Budget Tracker",
@@ -255,75 +259,108 @@ describe("integration: full deploy lifecycle", () => {
     assert.ok(!deployResult.isError, `app_deploy failed: ${deployResult.content[0].text}`);
     const deployData = parseResult(deployResult);
     assert.equal(deployData.slug, SLUG);
-    assert.ok(deployData.url.includes(SLUG));
+    assert.ok(
+      deployData.url.includes(`ai-apps.env.fidoo.cloud/${SLUG}/`),
+      `URL should be path-based, got: ${deployData.url}`,
+    );
 
     // Verify .deploy.json was written
     const deployJson = JSON.parse(await readFile(join(appDir, ".deploy.json"), "utf8"));
     assert.equal(deployJson.appSlug, SLUG);
+    assert.equal(deployJson.appName, "Budget Tracker");
+    assert.equal(deployJson.appDescription, "Track spending");
 
-    // Verify deployedBy tag was sent
-    const patchCalls = getFetchCalls().filter((c) => c.init?.method === "PATCH");
-    assert.ok(patchCalls.length > 0, "Should have PATCH call for tags");
-    const tagBody = JSON.parse(patchCalls[0].init?.body as string);
-    assert.equal(tagBody.tags.deployedBy, "alice@fidoo.cloud");
+    // Verify blob upload occurred for app files
+    const calls = getFetchCalls();
+    const blobPuts = calls.filter(
+      (c) =>
+        c.url.includes(".blob.core.windows.net") &&
+        c.init?.method === "PUT" &&
+        !c.url.includes("registry.json"),
+    );
+    assert.ok(blobPuts.length >= 1, "Should upload at least one file to blob");
+    const appUpload = blobPuts.find((c) => c.url.includes(`${SLUG}/index.html`));
+    assert.ok(appUpload, "Should upload index.html under slug prefix");
+
+    // Verify registry was saved with deployedBy from JWT
+    const registrySaves = calls.filter(
+      (c) =>
+        c.url.includes(".blob.core.windows.net") &&
+        c.url.includes("registry.json") &&
+        c.init?.method === "PUT",
+    );
+    assert.ok(registrySaves.length > 0, "Should save registry.json to blob");
+
+    // Verify the stateful registry now contains our app with correct deployedBy
+    assert.equal(currentRegistry.apps.length, 1);
+    assert.equal(currentRegistry.apps[0].slug, SLUG);
+    assert.equal(currentRegistry.apps[0].deployedBy, "alice@fidoo.cloud");
+
+    // Verify zipdeploy was called (site deploy)
+    const zipdeployCalls = calls.filter(
+      (c) => c.url.includes("zipdeploy") && c.init?.method === "POST",
+    );
+    assert.ok(zipdeployCalls.length > 0, "Should call zipdeploy for site deploy");
 
     // ---- Step 5: app_list — verify app appears ----
     const listResult = await callTool("app_list");
     assert.ok(!listResult.isError, `app_list failed: ${listResult.content[0].text}`);
     const listData = parseResult(listResult);
     assert.ok(Array.isArray(listData.apps));
-    assert.ok(listData.apps.length > 0);
+    assert.equal(listData.apps.length, 1);
     assert.equal(listData.apps[0].slug, SLUG);
+    assert.equal(listData.apps[0].name, "Budget Tracker");
+    assert.equal(listData.apps[0].url, `https://ai-apps.env.fidoo.cloud/${SLUG}/`);
 
     // ---- Step 6: app_info — get details ----
-    // Uses the persistent getStaticWebApp mock from step 4 (returns with tags)
     const infoResult = await callTool("app_info", { app_slug: SLUG });
     assert.ok(!infoResult.isError, `app_info failed: ${infoResult.content[0].text}`);
     const infoData = parseResult(infoResult);
     assert.equal(infoData.slug, SLUG);
     assert.equal(infoData.name, "Budget Tracker");
+    assert.equal(infoData.description, "Track spending");
+    assert.equal(infoData.url, `https://ai-apps.env.fidoo.cloud/${SLUG}/`);
+    assert.equal(infoData.deployedBy, "alice@fidoo.cloud");
 
     // ---- Step 7: app_update_info — change description ----
-    mockFetch((url, init) => {
-      if (url.includes(`/staticSites/${SLUG}`) && init?.method === "PATCH") {
-        return { status: 200, body: makeSwa(SLUG) };
-      }
-      return undefined;
-    });
-
     const updateResult = await callTool("app_update_info", {
       app_slug: SLUG,
       app_description: "Track expenses and budgets",
     });
     assert.ok(!updateResult.isError, `app_update_info failed: ${updateResult.content[0].text}`);
+    const updateData = parseResult(updateResult);
+    assert.equal(updateData.status, "ok");
+
+    // Verify registry was updated with new description
+    assert.equal(currentRegistry.apps.length, 1);
+    assert.equal(currentRegistry.apps[0].description, "Track expenses and budgets");
+    assert.equal(currentRegistry.apps[0].name, "Budget Tracker"); // unchanged
 
     // ---- Step 8: app_deploy — re-deploy ----
-    // .deploy.json exists now, so it should re-deploy
+    // .deploy.json exists now, so it should re-deploy without app_name/app_description
     const redeployResult = await callTool("app_deploy", { folder: appDir });
     assert.ok(!redeployResult.isError, `re-deploy failed: ${redeployResult.content[0].text}`);
     const redeployData = parseResult(redeployResult);
     assert.equal(redeployData.slug, SLUG);
+    assert.ok(
+      redeployData.url.includes(`ai-apps.env.fidoo.cloud/${SLUG}/`),
+      `Re-deploy URL should be path-based, got: ${redeployData.url}`,
+    );
 
     // ---- Step 9: app_delete ----
-    // Mock delete SWA
-    mockFetch((url, init) => {
-      if (url.includes(`/staticSites/${SLUG}`) && init?.method === "DELETE") {
-        return { status: 204, body: null };
-      }
-      return undefined;
-    });
-
-    // Mock delete CNAME
-    mockFetch((url, init) => {
-      if (url.includes(`/CNAME/${SLUG}`) && init?.method === "DELETE") {
-        return { status: 204, body: null };
-      }
-      return undefined;
-    });
-
     const deleteResult = await callTool("app_delete", { app_slug: SLUG });
     assert.ok(!deleteResult.isError, `app_delete failed: ${deleteResult.content[0].text}`);
     const deleteData = parseResult(deleteResult);
-    assert.ok(deleteData.message.includes("deleted"));
+    assert.ok(deleteData.message.includes(SLUG));
+
+    // Verify registry is now empty (app was removed)
+    assert.equal(currentRegistry.apps.length, 0);
+
+    // Verify blob DELETE was called for cleanup
+    const allCalls = getFetchCalls();
+    const blobDeletes = allCalls.filter(
+      (c) => c.url.includes(".blob.core.windows.net") && c.init?.method === "DELETE",
+    );
+    assert.ok(blobDeletes.length > 0, "Should have DELETE calls for blob cleanup");
   });
 });

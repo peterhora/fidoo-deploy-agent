@@ -95,7 +95,7 @@ describe("integration: MCP protocol over stdio", () => {
       assert.ok(listResp.result, "tools/list should return result");
       const tools = (listResp.result as { tools: Array<{ name: string }> }).tools;
       assert.ok(Array.isArray(tools));
-      assert.ok(tools.length === 9, `Expected 9 tools, got ${tools.length}`);
+      assert.ok(tools.length === 8, `Expected 8 tools, got ${tools.length}`);
 
       const toolNames = tools.map((t) => t.name).sort();
       assert.deepEqual(toolNames, [
@@ -107,7 +107,6 @@ describe("integration: MCP protocol over stdio", () => {
         "auth_login",
         "auth_poll",
         "auth_status",
-        "dashboard_rebuild",
       ]);
 
       // ---- tools/call — auth_status (no tokens = not authenticated) ----
