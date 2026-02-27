@@ -2,12 +2,14 @@
 #
 # infra/setup.sh — Idempotent Azure infrastructure setup for Deploy Agent
 #
-# Creates: resource group, two Entra ID app registrations, dashboard SWA, RBAC.
+# Creates: resource group, Deploy Plugin app registration, Storage Account,
+#          single Static Web App, RBAC.
 # Safe to re-run — checks resource existence before creating.
 #
 # Prerequisites:
 #   - Azure CLI (`az`) installed and logged in with admin permissions
-#   - Sufficient permissions: create app registrations, assign roles, create SWAs
+#   - Sufficient permissions: create app registrations, assign roles,
+#     create SWAs, create Storage Accounts
 #
 # Usage:
 #   chmod +x infra/setup.sh
@@ -19,10 +21,12 @@ set -euo pipefail
 
 LOCATION="westeurope"
 RESOURCE_GROUP="rg-published-apps"
-DNS_ZONE="env.fidoo.cloud"
-DASHBOARD_SLUG="apps"
 DEPLOY_PLUGIN_APP_NAME="Deploy Plugin"
-PUBLISHED_APPS_APP_NAME="Published Apps"
+SWA_SLUG="ai-apps"                        # Single SWA resource name
+SWA_NAME="swa-${SWA_SLUG}"
+STORAGE_ACCOUNT="stpublishedapps"          # Must be globally unique, 3-24 lowercase alphanumeric
+CONTAINER_NAME="app-content"               # Blob container for app files + registry
+APP_DOMAIN="ai-apps.env.fidoo.cloud"       # Custom domain (DNS configured manually)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -114,64 +118,59 @@ else
   ok "app_publisher role created"
 fi
 
-# ── 3. App Registration: Published Apps ───────────────────────────────────────
+# ── 3. Storage Account ───────────────────────────────────────────────────────
 
-info "Checking app registration '$PUBLISHED_APPS_APP_NAME'..."
+info "Checking storage account '$STORAGE_ACCOUNT'..."
 
-PUBLISHED_APPS_APP_ID=$(az ad app list --display-name "$PUBLISHED_APPS_APP_NAME" --query "[0].appId" -o tsv 2>/dev/null || true)
-
-if [[ -n "$PUBLISHED_APPS_APP_ID" && "$PUBLISHED_APPS_APP_ID" != "None" ]]; then
-  ok "App registration '$PUBLISHED_APPS_APP_NAME' already exists (appId: $PUBLISHED_APPS_APP_ID)"
+if az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
+  ok "Storage account '$STORAGE_ACCOUNT' already exists"
 else
-  REDIRECT_URI="https://${DASHBOARD_SLUG}.${DNS_ZONE}/.auth/login/aad/callback"
-  info "Creating app registration '$PUBLISHED_APPS_APP_NAME'..."
-  PUBLISHED_APPS_APP_ID=$(az ad app create \
-    --display-name "$PUBLISHED_APPS_APP_NAME" \
-    --sign-in-audience "AzureADMyOrg" \
-    --web-redirect-uris "$REDIRECT_URI" \
-    --query appId -o tsv)
-  ok "App registration '$PUBLISHED_APPS_APP_NAME' created (appId: $PUBLISHED_APPS_APP_ID)"
+  info "Creating storage account '$STORAGE_ACCOUNT'..."
+  az storage account create \
+    --name "$STORAGE_ACCOUNT" \
+    --resource-group "$RESOURCE_GROUP" \
+    --location "$LOCATION" \
+    --sku Standard_LRS \
+    --kind StorageV2 \
+    --output none
+  ok "Storage account '$STORAGE_ACCOUNT' created"
 fi
 
-# Create app_subscriber app role (idempotent)
-info "Checking app_subscriber role..."
-EXISTING_SUB_ROLES=$(az ad app show --id "$PUBLISHED_APPS_APP_ID" --query "appRoles[?value=='app_subscriber'].id" -o tsv 2>/dev/null || true)
+# Create blob container (idempotent)
+info "Checking blob container '$CONTAINER_NAME'..."
+CONTAINER_EXISTS=$(az storage container exists \
+  --name "$CONTAINER_NAME" \
+  --account-name "$STORAGE_ACCOUNT" \
+  --auth-mode login \
+  --query exists -o tsv 2>/dev/null || echo "false")
 
-if [[ -n "$EXISTING_SUB_ROLES" ]]; then
-  ok "app_subscriber role already exists"
+if [[ "$CONTAINER_EXISTS" == "true" ]]; then
+  ok "Blob container '$CONTAINER_NAME' already exists"
 else
-  info "Creating app_subscriber role..."
-  SUB_ROLE_ID=$(uuidgen 2>/dev/null || python3 -c "import uuid; print(uuid.uuid4())")
-  az ad app update --id "$PUBLISHED_APPS_APP_ID" --app-roles "[
-    {
-      \"allowedMemberTypes\": [\"User\"],
-      \"description\": \"Can view published static web apps\",
-      \"displayName\": \"App Subscriber\",
-      \"isEnabled\": true,
-      \"value\": \"app_subscriber\",
-      \"id\": \"$SUB_ROLE_ID\"
-    }
-  ]" 2>/dev/null
-  ok "app_subscriber role created"
+  info "Creating blob container '$CONTAINER_NAME'..."
+  az storage container create \
+    --name "$CONTAINER_NAME" \
+    --account-name "$STORAGE_ACCOUNT" \
+    --auth-mode login \
+    --output none
+  ok "Blob container '$CONTAINER_NAME' created"
 fi
 
-# ── 4. Dashboard Static Web App ──────────────────────────────────────────────
+# ── 4. Single Static Web App ─────────────────────────────────────────────────
 
-DASHBOARD_SWA_NAME="swa-${DASHBOARD_SLUG}"
+info "Checking SWA '$SWA_NAME'..."
 
-info "Checking dashboard SWA '$DASHBOARD_SWA_NAME'..."
-
-if az staticwebapp show --name "$DASHBOARD_SWA_NAME" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
-  ok "Dashboard SWA '$DASHBOARD_SWA_NAME' already exists"
+if az staticwebapp show --name "$SWA_NAME" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
+  ok "SWA '$SWA_NAME' already exists"
 else
-  info "Creating dashboard SWA '$DASHBOARD_SWA_NAME'..."
+  info "Creating SWA '$SWA_NAME'..."
   az staticwebapp create \
-    --name "$DASHBOARD_SWA_NAME" \
+    --name "$SWA_NAME" \
     --resource-group "$RESOURCE_GROUP" \
     --location "$LOCATION" \
     --sku Free \
     --output none
-  ok "Dashboard SWA '$DASHBOARD_SWA_NAME' created"
+  ok "SWA '$SWA_NAME' created"
 fi
 
 # ── 5. RBAC ──────────────────────────────────────────────────────────────────
@@ -199,19 +198,18 @@ az role assignment create \
   --output none 2>/dev/null || true
 ok "Contributor role assigned"
 
-# ── 6. Find DNS resource group ────────────────────────────────────────────────
+# Assign Storage Blob Data Contributor on the storage account
+STORAGE_ID=$(az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
 
-info "Looking for DNS zone '$DNS_ZONE'..."
-DNS_RG=$(az network dns zone list --query "[?name=='$DNS_ZONE'].resourceGroup | [0]" -o tsv 2>/dev/null || true)
+info "Assigning Storage Blob Data Contributor on '$STORAGE_ACCOUNT'..."
+az role assignment create \
+  --assignee "$DEPLOY_PLUGIN_APP_ID" \
+  --role "Storage Blob Data Contributor" \
+  --scope "$STORAGE_ID" \
+  --output none 2>/dev/null || true
+ok "Storage Blob Data Contributor role assigned"
 
-if [[ -n "$DNS_RG" && "$DNS_RG" != "None" ]]; then
-  ok "DNS zone found in resource group '$DNS_RG'"
-else
-  warn "DNS zone '$DNS_ZONE' not found. You'll need to set DNS_RESOURCE_GROUP manually."
-  DNS_RG="PLACEHOLDER_DNS_RESOURCE_GROUP"
-fi
-
-# ── 7. Write infra/.env ──────────────────────────────────────────────────────
+# ── 6. Write infra/.env ──────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
@@ -227,9 +225,10 @@ DEPLOY_AGENT_TENANT_ID=$TENANT_ID
 DEPLOY_AGENT_CLIENT_ID=$DEPLOY_PLUGIN_APP_ID
 DEPLOY_AGENT_SUBSCRIPTION_ID=$SUBSCRIPTION_ID
 DEPLOY_AGENT_RESOURCE_GROUP=$RESOURCE_GROUP
-DEPLOY_AGENT_DNS_ZONE=$DNS_ZONE
-DEPLOY_AGENT_DNS_RESOURCE_GROUP=$DNS_RG
-DEPLOY_AGENT_PUBLISHED_APPS_CLIENT_ID=$PUBLISHED_APPS_APP_ID
+DEPLOY_AGENT_STORAGE_ACCOUNT=$STORAGE_ACCOUNT
+DEPLOY_AGENT_CONTAINER_NAME=$CONTAINER_NAME
+DEPLOY_AGENT_APP_DOMAIN=$APP_DOMAIN
+DEPLOY_AGENT_SWA_SLUG=$SWA_SLUG
 EOF
 
 ok "Config written to $ENV_FILE"
@@ -247,30 +246,20 @@ echo "    DEPLOY_AGENT_TENANT_ID=$TENANT_ID"
 echo "    DEPLOY_AGENT_CLIENT_ID=$DEPLOY_PLUGIN_APP_ID"
 echo "    DEPLOY_AGENT_SUBSCRIPTION_ID=$SUBSCRIPTION_ID"
 echo "    DEPLOY_AGENT_RESOURCE_GROUP=$RESOURCE_GROUP"
-echo "    DEPLOY_AGENT_DNS_ZONE=$DNS_ZONE"
-echo "    DEPLOY_AGENT_DNS_RESOURCE_GROUP=$DNS_RG"
-echo "    DEPLOY_AGENT_PUBLISHED_APPS_CLIENT_ID=$PUBLISHED_APPS_APP_ID"
+echo "    DEPLOY_AGENT_STORAGE_ACCOUNT=$STORAGE_ACCOUNT"
+echo "    DEPLOY_AGENT_CONTAINER_NAME=$CONTAINER_NAME"
+echo "    DEPLOY_AGENT_APP_DOMAIN=$APP_DOMAIN"
+echo "    DEPLOY_AGENT_SWA_SLUG=$SWA_SLUG"
+echo ""
+echo "  DNS setup (manual — must be done by an admin):"
+echo "    Create a CNAME record pointing '$APP_DOMAIN' to the default"
+echo "    hostname of the SWA '$SWA_NAME'. Then configure the custom domain"
+echo "    on the SWA in the Azure portal."
 echo ""
 echo "  Next steps:"
 echo "    1. Source the env file:  source infra/.env"
 echo "    2. Rebuild the plugin:  npm run build"
 echo ""
-
-# DNS manual step
-if [[ "$DNS_RG" != "PLACEHOLDER_DNS_RESOURCE_GROUP" ]]; then
-  echo "  DNS setup (manual):"
-  echo "    Create a wildcard CNAME record in your DNS zone if not already present:"
-  echo "      az network dns record-set cname set-record \\"
-  echo "        --resource-group $DNS_RG \\"
-  echo "        --zone-name $DNS_ZONE \\"
-  echo "        --record-set-name '*' \\"
-  echo "        --cname <default-hostname-of-dashboard-swa>"
-  echo ""
-  echo "    Or configure individual CNAME records per app as they are deployed."
-  echo ""
-fi
-
 echo "  Assign users:"
 echo "    - Publishers: Assign 'app_publisher' role on '$DEPLOY_PLUGIN_APP_NAME' enterprise app"
-echo "    - Subscribers: Assign 'app_subscriber' role on '$PUBLISHED_APPS_APP_NAME' enterprise app"
 echo ""
