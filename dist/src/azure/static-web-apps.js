@@ -4,6 +4,7 @@
  */
 import { config } from "../config.js";
 import { azureFetch } from "./rest-client.js";
+import { uploadBlob, deleteBlob, generateBlobSasUrl } from "./blob.js";
 function swaPath(slug) {
     return `/subscriptions/${config.subscriptionId}/resourceGroups/${config.resourceGroup}/providers/Microsoft.Web/staticSites/${slug}`;
 }
@@ -64,20 +65,29 @@ export async function updateTags(token, slug, tags) {
         body: { tags },
     }));
 }
-export async function deploySwaZip(token, slug, zipBuffer) {
-    const apiKey = await getDeploymentToken(token, slug);
-    const swa = await getStaticWebApp(token, slug);
-    const hostname = swa.properties.defaultHostname;
-    const response = await fetch(`https://${hostname}/api/zipdeploy?provider=SwaCli`, {
-        method: "POST",
-        headers: {
-            Authorization: apiKey,
-            "Content-Type": "application/octet-stream",
-        },
-        body: zipBuffer,
-    });
-    if (!response.ok) {
-        throw new Error(`Deployment failed: ${response.status} ${response.statusText}`);
+export async function deploySwaZip(armToken, storageToken, slug, zipBuffer) {
+    const tempBlobPath = `_deploy-temp/${Date.now()}.zip`;
+    // Upload ZIP to blob storage
+    await uploadBlob(storageToken, tempBlobPath, zipBuffer);
+    try {
+        // Generate SAS URL so the ARM backend can fetch the ZIP
+        const sasUrl = await generateBlobSasUrl(storageToken, tempBlobPath);
+        // Call ARM zipdeploy API (returns 200 or 202)
+        await azureFetch(`${swaPath(slug)}/zipdeploy`, {
+            token: armToken,
+            method: "POST",
+            apiVersion: "2024-04-01",
+            body: {
+                properties: {
+                    appZipUrl: sasUrl,
+                    provider: "DeployAgent",
+                },
+            },
+        });
+    }
+    finally {
+        // Clean up temp blob
+        await deleteBlob(storageToken, tempBlobPath).catch(() => { });
     }
 }
 export async function configureAuth(token, slug) {

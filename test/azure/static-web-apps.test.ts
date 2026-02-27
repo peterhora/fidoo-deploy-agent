@@ -234,114 +234,101 @@ describe("deploySwaZip", () => {
   beforeEach(() => installMockFetch());
   afterEach(() => restoreFetch());
 
-  it("gets deployment token and POSTs ZIP buffer", async () => {
-    // Mock listSecrets (getDeploymentToken)
+  const STORAGE_TOKEN = "storage-token-xyz";
+
+  // Helper: mock all calls the new deploySwaZip makes
+  function mockDeploySwaZipCalls(zipDeployStatus = 200) {
+    // Mock blob upload (PUT to blob storage)
     mockFetch((url, init) => {
-      if (url.includes("/listSecrets") && init?.method === "POST") {
+      if (url.includes("blob.core.windows.net") && url.includes("_deploy-temp") && init?.method === "PUT") {
+        return { status: 201, body: {} };
+      }
+      return undefined;
+    });
+
+    // Mock getUserDelegationKey (POST to blob service)
+    mockFetch((url, init) => {
+      if (url.includes("blob.core.windows.net") && url.includes("userdelegationkey") && init?.method === "POST") {
         return {
           status: 200,
-          body: { properties: { apiKey: "deploy-key-abc" } },
+          body: `<?xml version="1.0" encoding="utf-8"?>
+<UserDelegationKey>
+  <SignedOid>oid-123</SignedOid>
+  <SignedTid>tid-456</SignedTid>
+  <SignedStart>2026-01-01T00:00:00Z</SignedStart>
+  <SignedExpiry>2026-01-01T01:00:00Z</SignedExpiry>
+  <SignedService>b</SignedService>
+  <SignedVersion>2024-11-04</SignedVersion>
+  <Value>${Buffer.from("fake-key-32-bytes-for-hmac-sign!").toString("base64")}</Value>
+</UserDelegationKey>`,
+          headers: { "content-type": "application/xml" },
         };
       }
       return undefined;
     });
 
-    // Mock getStaticWebApp (for defaultHostname)
+    // Mock ARM zipdeploy POST
     mockFetch((url, init) => {
-      if (
-        url.includes("/staticSites/my-app") &&
-        !url.includes("/listSecrets") &&
-        (!init?.method || init.method === "GET")
-      ) {
-        return {
-          status: 200,
-          body: {
-            id: RESOURCE_ID,
-            name: "my-app",
-            properties: { defaultHostname: "my-app.azurestaticapps.net" },
-            tags: {},
-          },
-        };
+      if (url.includes("management.azure.com") && url.includes("zipdeploy") && init?.method === "POST") {
+        if (zipDeployStatus === 200 || zipDeployStatus === 202) {
+          return { status: zipDeployStatus, body: {} };
+        }
+        return { status: zipDeployStatus, body: { error: { code: "DeployFailed", message: "Deployment failed" } } };
       }
       return undefined;
     });
 
-    // Mock zipdeploy POST
+    // Mock blob delete (DELETE to blob storage)
     mockFetch((url, init) => {
-      if (url.includes("zipdeploy") && init?.method === "POST") {
-        return { status: 200, body: {} };
+      if (url.includes("blob.core.windows.net") && url.includes("_deploy-temp") && init?.method === "DELETE") {
+        return { status: 202, body: {} };
       }
       return undefined;
     });
+  }
+
+  it("uploads ZIP to blob, calls ARM zipdeploy with SAS URL, cleans up", async () => {
+    mockDeploySwaZipCalls(200);
 
     const zipBuffer = Buffer.from("fake-zip-content");
-    await deploySwaZip(TOKEN, "my-app", zipBuffer);
+    await deploySwaZip(TOKEN, STORAGE_TOKEN, "my-app", zipBuffer);
 
     const calls = getFetchCalls();
-    // Should have 3 calls: listSecrets, getStaticWebApp, zipdeploy
-    assert.equal(calls.length, 3);
 
-    // Verify zipdeploy call
-    const zipCall = calls.find((c) => c.url.includes("zipdeploy"))!;
-    assert.ok(zipCall, "Should have a zipdeploy call");
+    // Verify blob upload
+    const uploadCall = calls.find((c) => c.url.includes("_deploy-temp") && c.init?.method === "PUT")!;
+    assert.ok(uploadCall, "Should upload ZIP to blob storage");
+
+    // Verify ARM zipdeploy call
+    const zipCall = calls.find((c) => c.url.includes("management.azure.com") && c.url.includes("zipdeploy"))!;
+    assert.ok(zipCall, "Should call ARM zipdeploy API");
     assert.equal(zipCall.init?.method, "POST");
-    assert.ok(
-      zipCall.url.includes("my-app.azurestaticapps.net"),
-      "URL should contain the SWA hostname",
-    );
+    const body = JSON.parse(zipCall.init?.body as string);
+    assert.ok(body.properties.appZipUrl, "Should include appZipUrl");
+    assert.ok(body.properties.appZipUrl.includes("sig="), "appZipUrl should contain SAS signature");
 
-    // Verify Authorization header is raw token (not Bearer)
-    const headers = zipCall.init?.headers as Record<string, string>;
-    assert.equal(headers["Authorization"], "deploy-key-abc");
-    assert.equal(headers["Content-Type"], "application/octet-stream");
-
-    // Verify body is the zip buffer
-    assert.equal(zipCall.init?.body, zipBuffer);
+    // Verify cleanup
+    const deleteCall = calls.find((c) => c.url.includes("_deploy-temp") && c.init?.method === "DELETE")!;
+    assert.ok(deleteCall, "Should delete temp blob");
   });
 
-  it("throws on deployment failure", async () => {
-    // Mock listSecrets
-    mockFetch((url, init) => {
-      if (url.includes("/listSecrets") && init?.method === "POST") {
-        return {
-          status: 200,
-          body: { properties: { apiKey: "deploy-key-abc" } },
-        };
-      }
-      return undefined;
-    });
+  it("accepts 202 async response", async () => {
+    mockDeploySwaZipCalls(202);
 
-    // Mock getStaticWebApp
-    mockFetch((url, init) => {
-      if (
-        url.includes("/staticSites/my-app") &&
-        !url.includes("/listSecrets") &&
-        (!init?.method || init.method === "GET")
-      ) {
-        return {
-          status: 200,
-          body: {
-            id: RESOURCE_ID,
-            name: "my-app",
-            properties: { defaultHostname: "my-app.azurestaticapps.net" },
-            tags: {},
-          },
-        };
-      }
-      return undefined;
-    });
+    const zipBuffer = Buffer.from("fake-zip-content");
+    await deploySwaZip(TOKEN, STORAGE_TOKEN, "my-app", zipBuffer);
+    // Should not throw
+  });
 
-    // Mock zipdeploy POST returning 400
-    mockFetch((url, init) => {
-      if (url.includes("zipdeploy") && init?.method === "POST") {
-        return { status: 400, body: { error: "Bad Request" } };
-      }
-      return undefined;
-    });
+  it("throws on deployment failure and still cleans up", async () => {
+    mockDeploySwaZipCalls(400);
 
     const zipBuffer = Buffer.from("bad-zip");
-    await assert.rejects(() => deploySwaZip(TOKEN, "my-app", zipBuffer), {
-      message: /deploy.*fail/i,
-    });
+    await assert.rejects(() => deploySwaZip(TOKEN, STORAGE_TOKEN, "my-app", zipBuffer));
+
+    // Verify cleanup still happened
+    const calls = getFetchCalls();
+    const deleteCall = calls.find((c) => c.url.includes("_deploy-temp") && c.init?.method === "DELETE");
+    assert.ok(deleteCall, "Should still clean up temp blob on failure");
   });
 });

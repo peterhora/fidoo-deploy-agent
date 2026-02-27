@@ -133,29 +133,32 @@ function mockBlobAndDeployFlow(slug: string, registryStatus: number = 404) {
     return undefined;
   });
 
-  // getDeploymentToken
-  mockFetch((url, init) => {
-    if (url.includes("listSecrets") && init?.method === "POST") {
-      return { status: 200, body: { properties: { apiKey: "test-key" } } };
-    }
-    return undefined;
-  });
+  // deploySwaZip mocks:
 
-  // getStaticWebApp (hostname)
+  // getUserDelegationKey
   mockFetch((url, init) => {
-    if (url.includes("staticSites/ai-apps") && (!init?.method || init.method === "GET")) {
+    if (url.includes("userdelegationkey") && init?.method === "POST") {
       return {
         status: 200,
-        body: { properties: { defaultHostname: "ai-apps.azurestaticapps.net" } },
+        body: `<?xml version="1.0" encoding="utf-8"?><UserDelegationKey><SignedOid>oid</SignedOid><SignedTid>tid</SignedTid><SignedStart>2026-01-01T00:00:00Z</SignedStart><SignedExpiry>2026-01-01T01:00:00Z</SignedExpiry><SignedService>b</SignedService><SignedVersion>2024-11-04</SignedVersion><Value>${Buffer.from("fake-key-32-bytes-for-hmac-sign!").toString("base64")}</Value></UserDelegationKey>`,
+        headers: { "content-type": "application/xml" },
       };
     }
     return undefined;
   });
 
-  // zipdeploy
+  // ARM zipdeploy
   mockFetch((url, init) => {
-    if (url.includes("zipdeploy") && init?.method === "POST") {
-      return { status: 200, body: null };
+    if (url.includes("management.azure.com") && url.includes("zipdeploy") && init?.method === "POST") {
+      return { status: 200, body: {} };
+    }
+    return undefined;
+  });
+
+  // blob delete (cleanup _deploy-temp)
+  mockFetch((url, init) => {
+    if (url.includes(".blob.core.windows.net") && init?.method === "DELETE") {
+      return { status: 202, body: {} };
     }
     return undefined;
   });

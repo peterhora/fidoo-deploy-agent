@@ -105,7 +105,7 @@ describe("config", () => {
     it("has swaSlug with default", async () => {
         const { buildConfig } = await import("../src/config.js");
         const cfg = buildConfig();
-        assert.equal(cfg.swaSlug, "ai-apps");
+        assert.equal(cfg.swaSlug, "swa-ai-apps");
     });
     it("has swaSlug from env", async () => {
         process.env.DEPLOY_AGENT_SWA_SLUG = "my-apps";

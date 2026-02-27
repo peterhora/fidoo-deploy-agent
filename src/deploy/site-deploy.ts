@@ -14,7 +14,7 @@ export async function deploySite(armToken: string, storageToken: string, registr
     await assembleSite(storageToken, registry, tempDir);
     const files = await collectFiles(tempDir);
     const zipBuffer = await createZipBuffer(tempDir, files);
-    await deploySwaZip(armToken, config.swaSlug, zipBuffer);
+    await deploySwaZip(armToken, storageToken, config.swaSlug, zipBuffer);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

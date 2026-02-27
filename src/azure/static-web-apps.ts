@@ -5,6 +5,7 @@
 
 import { config } from "../config.js";
 import { azureFetch } from "./rest-client.js";
+import { uploadBlob, deleteBlob, generateBlobSasUrl } from "./blob.js";
 
 export interface StaticWebAppResource {
   id: string;
@@ -107,28 +108,35 @@ export async function updateTags(
 }
 
 export async function deploySwaZip(
-  token: string,
+  armToken: string,
+  storageToken: string,
   slug: string,
   zipBuffer: Buffer,
 ): Promise<void> {
-  const apiKey = await getDeploymentToken(token, slug);
-  const swa = await getStaticWebApp(token, slug);
-  const hostname = (swa.properties as { defaultHostname: string }).defaultHostname;
+  const tempBlobPath = `_deploy-temp/${Date.now()}.zip`;
 
-  const response = await fetch(
-    `https://${hostname}/api/zipdeploy?provider=SwaCli`,
-    {
+  // Upload ZIP to blob storage
+  await uploadBlob(storageToken, tempBlobPath, zipBuffer);
+
+  try {
+    // Generate SAS URL so the ARM backend can fetch the ZIP
+    const sasUrl = await generateBlobSasUrl(storageToken, tempBlobPath);
+
+    // Call ARM zipdeploy API (returns 200 or 202)
+    await azureFetch(`${swaPath(slug)}/zipdeploy`, {
+      token: armToken,
       method: "POST",
-      headers: {
-        Authorization: apiKey,
-        "Content-Type": "application/octet-stream",
+      apiVersion: "2024-04-01",
+      body: {
+        properties: {
+          appZipUrl: sasUrl,
+          provider: "DeployAgent",
+        },
       },
-      body: zipBuffer as unknown as BodyInit,
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(`Deployment failed: ${response.status} ${response.statusText}`);
+    });
+  } finally {
+    // Clean up temp blob
+    await deleteBlob(storageToken, tempBlobPath).catch(() => {});
   }
 }
 

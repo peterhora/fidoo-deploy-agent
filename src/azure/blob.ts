@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { config } from "../config.js";
 
 function blobUrl(blobPath: string): string {
@@ -72,4 +73,113 @@ export async function listBlobs(token: string, prefix?: string): Promise<string[
 export async function deleteBlobsByPrefix(token: string, prefix: string): Promise<void> {
   const blobs = await listBlobs(token, prefix);
   await Promise.all(blobs.map((name) => deleteBlob(token, name)));
+}
+
+// ── User Delegation SAS ────────────────────────────────────────────────────
+
+interface UserDelegationKey {
+  signedOid: string;
+  signedTid: string;
+  signedStart: string;
+  signedExpiry: string;
+  signedService: string;
+  signedVersion: string;
+  value: string;
+}
+
+async function getUserDelegationKey(token: string): Promise<UserDelegationKey> {
+  const now = new Date();
+  const start = now.toISOString().replace(/\.\d{3}Z/, "Z");
+  const expiry = new Date(now.getTime() + 3600_000).toISOString().replace(/\.\d{3}Z/, "Z");
+
+  const resp = await fetch(
+    `https://${config.storageAccount}.blob.core.windows.net/?restype=service&comp=userdelegationkey`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders(token),
+        "Content-Type": "application/xml",
+      },
+      body: `<?xml version="1.0" encoding="utf-8"?><KeyInfo><Start>${start}</Start><Expiry>${expiry}</Expiry></KeyInfo>`,
+    },
+  );
+
+  if (!resp.ok) {
+    throw new Error(`User delegation key request failed: ${resp.status} ${await resp.text()}`);
+  }
+
+  const xml = await resp.text();
+  const extract = (tag: string): string => {
+    const match = new RegExp(`<${tag}>([^<]*)</${tag}>`).exec(xml);
+    return match?.[1] ?? "";
+  };
+
+  return {
+    signedOid: extract("SignedOid"),
+    signedTid: extract("SignedTid"),
+    signedStart: extract("SignedStart"),
+    signedExpiry: extract("SignedExpiry"),
+    signedService: extract("SignedService"),
+    signedVersion: extract("SignedVersion"),
+    value: extract("Value"),
+  };
+}
+
+export async function generateBlobSasUrl(token: string, blobPath: string): Promise<string> {
+  const key = await getUserDelegationKey(token);
+
+  const now = new Date();
+  const start = now.toISOString().replace(/\.\d{3}Z/, "Z");
+  const expiry = new Date(now.getTime() + 3600_000).toISOString().replace(/\.\d{3}Z/, "Z");
+
+  const canonicalizedResource = `/blob/${config.storageAccount}/${config.containerName}/${blobPath}`;
+
+  const stringToSign = [
+    "r",                        // signedPermissions
+    start,                      // signedStart
+    expiry,                     // signedExpiry
+    canonicalizedResource,
+    key.signedOid,              // signedKeyObjectId
+    key.signedTid,              // signedKeyTenantId
+    key.signedStart,            // signedKeyStart
+    key.signedExpiry,           // signedKeyExpiry
+    key.signedService,          // signedKeyService
+    key.signedVersion,          // signedKeyVersion
+    "",                         // signedAuthorizedUserObjectId
+    "",                         // signedUnauthorizedUserObjectId
+    "",                         // signedCorrelationId
+    "",                         // signedIP
+    "https",                    // signedProtocol
+    config.storageApiVersion,   // signedVersion
+    "b",                        // signedResource (blob)
+    "",                         // signedSnapshotTime
+    "",                         // signedEncryptionScope
+    "",                         // rscc (Cache-Control)
+    "",                         // rscd (Content-Disposition)
+    "",                         // rsce (Content-Encoding)
+    "",                         // rscl (Content-Language)
+    "",                         // rsct (Content-Type)
+  ].join("\n");
+
+  const sig = createHmac("sha256", Buffer.from(key.value, "base64"))
+    .update(stringToSign, "utf-8")
+    .digest("base64");
+
+  const params = new URLSearchParams({
+    sp: "r",
+    st: start,
+    se: expiry,
+    spr: "https",
+    sv: config.storageApiVersion,
+    sr: "b",
+    skoid: key.signedOid,
+    sktid: key.signedTid,
+    skt: key.signedStart,
+    ske: key.signedExpiry,
+    sks: key.signedService,
+    skv: key.signedVersion,
+    sig,
+  });
+
+  return `${blobUrl(blobPath)}?${params.toString()}`;
 }
