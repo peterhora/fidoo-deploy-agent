@@ -1,26 +1,19 @@
-import { stat } from "node:fs/promises";
+import { stat, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { ToolDefinition, ToolHandler, ToolResult } from "./index.js";
 import { loadTokens, isTokenExpired } from "../auth/token-store.js";
+import { extractUpn } from "../auth/jwt.js";
 import { config } from "../config.js";
 import { readDeployConfig, writeDeployConfig, generateSlug } from "../deploy/deploy-json.js";
 import { collectFiles } from "../deploy/deny-list.js";
-import { createZipBuffer } from "../deploy/zip.js";
-import {
-  createStaticWebApp,
-  getStaticWebApp,
-  deploySwaZip,
-  updateTags,
-  configureAuth,
-} from "../azure/static-web-apps.js";
-import { createCnameRecord } from "../azure/dns.js";
-import { AzureError } from "../azure/rest-client.js";
-import { deployDashboard } from "../deploy/dashboard.js";
-import { extractUpn } from "../auth/jwt.js";
+import { uploadBlob } from "../azure/blob.js";
+import { loadRegistry, saveRegistry, upsertApp } from "../deploy/registry.js";
+import { deploySite } from "../deploy/site-deploy.js";
 
 export const definition: ToolDefinition = {
   name: "app_deploy",
   description:
-    "Deploy a static app to Azure Static Web Apps. First deploy requires app_name and app_description. Re-deploy reads .deploy.json automatically. ZIPs the folder, creates/updates the SWA, configures DNS and auth, and rebuilds the dashboard.",
+    "Deploy a static app. First deploy requires app_name and app_description. Re-deploy reads .deploy.json automatically. Uploads files to blob storage, updates the registry, and rebuilds the site.",
   inputSchema: {
     type: "object",
     properties: {
@@ -49,6 +42,20 @@ function successResult(message: string): ToolResult {
   return { content: [{ type: "text", text: message }] };
 }
 
+async function uploadAppToBlob(
+  token: string,
+  slug: string,
+  folder: string,
+  files: string[],
+): Promise<void> {
+  await Promise.all(
+    files.map(async (relativePath) => {
+      const content = await readFile(join(folder, relativePath));
+      await uploadBlob(token, `${slug}/${relativePath}`, content);
+    }),
+  );
+}
+
 async function firstDeploy(
   token: string,
   folder: string,
@@ -57,74 +64,58 @@ async function firstDeploy(
 ): Promise<ToolResult> {
   const slug = generateSlug(appName);
 
-  // Collision check
-  try {
-    await getStaticWebApp(token, slug);
-    // If we get here, the slug already exists
-    return errorResult(`App slug "${slug}" already exists. Choose a different app_name.`);
-  } catch (err) {
-    if (!(err instanceof AzureError && err.status === 404)) {
-      throw err; // Unexpected error
-    }
-    // 404 = slug available, continue
-  }
-
   const files = await collectFiles(folder);
-  const zipBuffer = await createZipBuffer(folder, files);
+  await uploadAppToBlob(token, slug, folder, files);
 
-  const swa = await createStaticWebApp(token, slug, { appName, appDescription });
-  await deploySwaZip(token, slug, zipBuffer);
-
-  const hostname = (swa.properties as { defaultHostname: string }).defaultHostname;
-  await createCnameRecord(token, slug, hostname);
-  await configureAuth(token, slug);
-
-  const tags: Record<string, string> = {
-    appName,
-    appDescription,
+  let registry = await loadRegistry(token);
+  const entry = {
+    slug,
+    name: appName,
+    description: appDescription,
     deployedAt: new Date().toISOString(),
+    deployedBy: extractUpn(token) || "unknown",
   };
-  const upn = extractUpn(token);
-  if (upn) tags.deployedBy = upn;
+  registry = upsertApp(registry, entry);
+  await saveRegistry(token, registry);
 
-  await updateTags(token, slug, tags);
+  await deploySite(token, registry);
 
   await writeDeployConfig(folder, {
     appSlug: slug,
     appName,
     appDescription,
-    resourceId: swa.id,
+    resourceId: "",
   });
 
-  await deployDashboard(token);
-
-  const url = `https://${slug}.${config.dnsZone}`;
+  const url = `https://${config.appDomain}/${slug}/`;
   return successResult(JSON.stringify({ status: "ok", url, slug }));
 }
 
 async function redeploy(
   token: string,
   folder: string,
-  existingConfig: { appSlug: string },
+  existingConfig: { appSlug: string; appName: string; appDescription: string },
 ): Promise<ToolResult> {
   const { appSlug } = existingConfig;
 
   const files = await collectFiles(folder);
-  const zipBuffer = await createZipBuffer(folder, files);
+  await uploadAppToBlob(token, appSlug, folder, files);
 
-  await deploySwaZip(token, appSlug, zipBuffer);
-
-  const tags: Record<string, string> = {
+  let registry = await loadRegistry(token);
+  const existing = registry.apps.find((a) => a.slug === appSlug);
+  const entry = {
+    slug: appSlug,
+    name: existing?.name || existingConfig.appName,
+    description: existing?.description || existingConfig.appDescription,
     deployedAt: new Date().toISOString(),
+    deployedBy: extractUpn(token) || "unknown",
   };
-  const upn = extractUpn(token);
-  if (upn) tags.deployedBy = upn;
+  registry = upsertApp(registry, entry);
+  await saveRegistry(token, registry);
 
-  await updateTags(token, appSlug, tags);
+  await deploySite(token, registry);
 
-  await deployDashboard(token);
-
-  const url = `https://${appSlug}.${config.dnsZone}`;
+  const url = `https://${config.appDomain}/${appSlug}/`;
   return successResult(JSON.stringify({ status: "ok", url, slug: appSlug }));
 }
 
