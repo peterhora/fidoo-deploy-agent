@@ -11,9 +11,11 @@ describe("config", () => {
     "DEPLOY_AGENT_CLIENT_ID",
     "DEPLOY_AGENT_SUBSCRIPTION_ID",
     "DEPLOY_AGENT_RESOURCE_GROUP",
-    "DEPLOY_AGENT_DNS_ZONE",
-    "DEPLOY_AGENT_DNS_RESOURCE_GROUP",
     "DEPLOY_AGENT_LOCATION",
+    "DEPLOY_AGENT_STORAGE_ACCOUNT",
+    "DEPLOY_AGENT_CONTAINER_NAME",
+    "DEPLOY_AGENT_APP_DOMAIN",
+    "DEPLOY_AGENT_SWA_SLUG",
   ];
 
   const savedEnv: Record<string, string | undefined> = {};
@@ -45,8 +47,6 @@ describe("config", () => {
     assert.equal(cfg.clientId, "PLACEHOLDER_CLIENT_ID");
     assert.equal(cfg.subscriptionId, "PLACEHOLDER_SUBSCRIPTION_ID");
     assert.equal(cfg.resourceGroup, "rg-published-apps");
-    assert.equal(cfg.dnsZone, "env.fidoo.cloud");
-    assert.equal(cfg.dnsResourceGroup, "PLACEHOLDER_DNS_RESOURCE_GROUP");
     assert.equal(cfg.location, "westeurope");
   });
 
@@ -78,20 +78,6 @@ describe("config", () => {
     assert.equal(cfg.resourceGroup, "my-rg");
   });
 
-  it("buildConfig reads dnsZone from DEPLOY_AGENT_DNS_ZONE", async () => {
-    process.env.DEPLOY_AGENT_DNS_ZONE = "custom.example.com";
-    const { buildConfig } = await import("../src/config.js");
-    const cfg = buildConfig();
-    assert.equal(cfg.dnsZone, "custom.example.com");
-  });
-
-  it("buildConfig reads dnsResourceGroup from DEPLOY_AGENT_DNS_RESOURCE_GROUP", async () => {
-    process.env.DEPLOY_AGENT_DNS_RESOURCE_GROUP = "dns-rg";
-    const { buildConfig } = await import("../src/config.js");
-    const cfg = buildConfig();
-    assert.equal(cfg.dnsResourceGroup, "dns-rg");
-  });
-
   it("buildConfig reads location from DEPLOY_AGENT_LOCATION", async () => {
     process.env.DEPLOY_AGENT_LOCATION = "eastus";
     const { buildConfig } = await import("../src/config.js");
@@ -99,15 +85,84 @@ describe("config", () => {
     assert.equal(cfg.location, "eastus");
   });
 
+  it("has storageAccount from env", async () => {
+    process.env.DEPLOY_AGENT_STORAGE_ACCOUNT = "mystore";
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal(cfg.storageAccount, "mystore");
+  });
+
+  it("has containerName with default", async () => {
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal(cfg.containerName, "app-content");
+  });
+
+  it("has containerName from env", async () => {
+    process.env.DEPLOY_AGENT_CONTAINER_NAME = "custom";
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal(cfg.containerName, "custom");
+  });
+
+  it("has appDomain with default", async () => {
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal(cfg.appDomain, "ai-apps.env.fidoo.cloud");
+  });
+
+  it("has appDomain from env", async () => {
+    process.env.DEPLOY_AGENT_APP_DOMAIN = "custom.example.com";
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal(cfg.appDomain, "custom.example.com");
+  });
+
+  it("has swaSlug with default", async () => {
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal(cfg.swaSlug, "ai-apps");
+  });
+
+  it("has swaSlug from env", async () => {
+    process.env.DEPLOY_AGENT_SWA_SLUG = "my-apps";
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal(cfg.swaSlug, "my-apps");
+  });
+
+  it("does not have dnsZone property", async () => {
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal("dnsZone" in cfg, false);
+  });
+
+  it("does not have dnsResourceGroup property", async () => {
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal("dnsResourceGroup" in cfg, false);
+  });
+
+  it("does not have dnsApiVersion property", async () => {
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal("dnsApiVersion" in cfg, false);
+  });
+
+  it("does not have dashboardSlug property", async () => {
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal("dashboardSlug" in cfg, false);
+  });
+
   it("buildConfig preserves non-configurable values", async () => {
     const { buildConfig } = await import("../src/config.js");
     const cfg = buildConfig();
-    assert.equal(cfg.dashboardSlug, "apps");
     assert.equal(cfg.scope, "https://management.azure.com/.default offline_access");
     assert.equal(cfg.armBaseUrl, "https://management.azure.com");
     assert.equal(cfg.entraBaseUrl, "https://login.microsoftonline.com");
     assert.equal(cfg.swaApiVersion, "2022-09-01");
-    assert.equal(cfg.dnsApiVersion, "2018-05-01");
+    assert.equal(cfg.storageApiVersion, "2024-11-04");
     assert.equal(cfg.swaSkuName, "Free");
     assert.equal(cfg.swaSkuTier, "Free");
   });
