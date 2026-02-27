@@ -3,7 +3,17 @@
     "deploy-agent": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/server.js"],
-      "type": "stdio"
+      "type": "stdio",
+      "env": {
+        "DEPLOY_AGENT_TENANT_ID": "7bcac0ca-0725-4318-9adc-e9b670a48e92",
+        "DEPLOY_AGENT_CLIENT_ID": "d98d6d07-48a7-474f-a409-8d2cd1be8c5c",
+        "DEPLOY_AGENT_SUBSCRIPTION_ID": "910c52ef-044b-4bd1-b5e9-84700289fca7",
+        "DEPLOY_AGENT_RESOURCE_GROUP": "rg-published-apps",
+        "DEPLOY_AGENT_STORAGE_ACCOUNT": "stpublishedapps",
+        "DEPLOY_AGENT_CONTAINER_NAME": "app-content",
+        "DEPLOY_AGENT_APP_DOMAIN": "ai-apps.env.fidoo.cloud",
+        "DEPLOY_AGENT_SWA_SLUG": "ai-apps"
+      }
     }
   }
 }
