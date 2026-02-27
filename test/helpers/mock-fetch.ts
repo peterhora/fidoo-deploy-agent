@@ -50,10 +50,13 @@ export function installMockFetch(): void {
         if (result.status === 204) {
           return new Response(null, { status: 204 });
         }
-        return new Response(JSON.stringify(result.body), {
-          status: result.status,
-          headers: { "content-type": "application/json", ...result.headers },
-        });
+        const headers = { "content-type": "application/json", ...result.headers };
+        const contentType = headers["content-type"];
+        const body =
+          typeof result.body === "string" && !contentType.includes("application/json")
+            ? result.body
+            : JSON.stringify(result.body);
+        return new Response(body, { status: result.status, headers });
       }
     }
     throw new Error(`mock-fetch: no matcher for ${url}`);
