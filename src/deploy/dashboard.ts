@@ -1,33 +1,4 @@
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { config } from "../config.js";
-import { listStaticWebApps, deploySwaZip } from "../azure/static-web-apps.js";
-import { collectFiles } from "./deny-list.js";
-import { createZipBuffer } from "./zip.js";
-
-export interface AppEntry {
-  slug: string;
-  name: string;
-  description: string;
-  url: string;
-  deployedAt: string;
-}
-
-export async function buildAppsJson(token: string): Promise<AppEntry[]> {
-  const swas = await listStaticWebApps(token);
-
-  return swas
-    .filter((swa) => swa.name !== config.dashboardSlug)
-    .map((swa) => ({
-      slug: swa.name,
-      name: swa.tags?.appName || swa.name,
-      description: swa.tags?.appDescription || "",
-      url: `https://${swa.name}.${config.dnsZone}`,
-      deployedAt: swa.tags?.deployedAt || "",
-    }))
-    .sort((a, b) => a.slug.localeCompare(b.slug));
-}
+import type { AppEntry } from "./registry.js";
 
 export function generateDashboardHtml(apps: AppEntry[]): string {
   const escapedData = JSON.stringify(apps).replace(/<\//g, "<\\/");
@@ -72,8 +43,8 @@ export function generateDashboardHtml(apps: AppEntry[]): string {
           div.appendChild(desc);
         }
         const link = document.createElement("a");
-        link.href = app.url;
-        link.textContent = app.url;
+        link.href = "/" + app.slug + "/";
+        link.textContent = "/" + app.slug + "/";
         div.appendChild(link);
         if (app.deployedAt) {
           const time = document.createElement("p");
@@ -86,21 +57,4 @@ export function generateDashboardHtml(apps: AppEntry[]): string {
   </script>
 </body>
 </html>`;
-}
-
-export async function deployDashboard(token: string): Promise<void> {
-  const apps = await buildAppsJson(token);
-  const html = generateDashboardHtml(apps);
-
-  const tmpDir = await mkdtemp(join(tmpdir(), "dashboard-"));
-  try {
-    await writeFile(join(tmpDir, "index.html"), html);
-    await writeFile(join(tmpDir, "apps.json"), JSON.stringify(apps, null, 2));
-
-    const files = await collectFiles(tmpDir);
-    const zipBuffer = await createZipBuffer(tmpDir, files);
-    await deploySwaZip(token, config.dashboardSlug, zipBuffer);
-  } finally {
-    await rm(tmpDir, { recursive: true, force: true });
-  }
 }
