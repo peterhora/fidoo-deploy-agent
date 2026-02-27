@@ -11,12 +11,11 @@ const EXPECTED_TOOLS = [
   "app_list",
   "app_info",
   "app_update_info",
-  "dashboard_rebuild",
 ];
 
 describe("tool registry", () => {
-  it("contains exactly 9 tools", () => {
-    assert.equal(toolRegistry.size, 9);
+  it("contains exactly 8 tools", () => {
+    assert.equal(toolRegistry.size, 8);
   });
 
   for (const name of EXPECTED_TOOLS) {

@@ -6,7 +6,7 @@ import * as appDelete from "./app-delete.js";
 import * as appList from "./app-list.js";
 import * as appInfo from "./app-info.js";
 import * as appUpdateInfo from "./app-update-info.js";
-import * as dashboardRebuild from "./dashboard-rebuild.js";
+
 
 export interface ToolDefinition {
   name: string;
@@ -39,7 +39,6 @@ const tools: RegisteredTool[] = [
   appList,
   appInfo,
   appUpdateInfo,
-  dashboardRebuild,
 ];
 
 export const toolRegistry = new Map<string, RegisteredTool>(

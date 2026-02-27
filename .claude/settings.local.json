@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/peterhora/.claude/plugins/**)",
+      "Read(//Users/peterhora/**)",
+      "WebFetch(domain:www.aihero.dev)",
+      "Bash(npm install:*)",
+      "Bash(npm:*)",
+      "Bash(node:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo:*)"
+    ],
+    "additionalDirectories": [
+      "/Users/peterhora/Documents/fidoo/deploy_agent/docs"
+    ]
+  },
+  "enabledPlugins": {
+    "plugin-dev@claude-plugins-official": true
+  }
+}

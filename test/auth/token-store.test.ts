@@ -67,7 +67,7 @@ describe("token-store (file fallback)", () => {
     assert.deepStrictEqual(loaded, tokens);
   });
 
-  it("token file has restricted permissions (0600)", async () => {
+  it("token file has restricted permissions (0600)", { skip: process.platform === "win32" ? "Windows ignores Unix file permissions" : false }, async () => {
     const tokens = makeTokens();
     await saveTokens(tokens, nestedDir());
     const filePath = path.join(nestedDir(), "tokens.json");

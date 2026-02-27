@@ -1,6 +1,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, mkdir, rm, symlink } from "node:fs/promises";
+import { mkdtemp, writeFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -164,7 +164,7 @@ describe("deny-list", () => {
 
     it("throws on non-existent directory", async () => {
       await assert.rejects(
-        () => collectFiles("/tmp/nonexistent-" + Date.now()),
+        () => collectFiles(join(tmpdir(), "nonexistent-" + Date.now())),
         { code: "ENOENT" },
       );
     });
