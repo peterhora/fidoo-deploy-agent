@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -29,69 +29,62 @@ async function setupTokenDir(tokens?: object): Promise<void> {
   }
 }
 
-function makeSwa(name: string, tags: Record<string, string> = {}) {
-  return {
-    id: `/subscriptions/x/resourceGroups/rg/providers/Microsoft.Web/staticSites/${name}`,
-    name,
-    location: "westeurope",
-    properties: { defaultHostname: `${name}.azurestaticapps.net` },
-    tags,
-  };
-}
-
 function mockUpdateFlow(slug: string) {
-  // getStaticWebApp — needed to verify app exists
+  const existingApp = { slug, name: "Old Name", description: "Old desc", deployedAt: "2026-01-01T00:00:00.000Z", deployedBy: "alice@fidoo.cloud" };
+
+  // Download registry.json (loadRegistry)
   mockFetch((url, init) => {
-    if (
-      url.includes(`/staticSites/${slug}`) &&
-      (!init?.method || init.method === "GET") &&
-      !url.includes("/listSecrets")
-    ) {
+    if (url.includes("registry.json") && (!init?.method || init.method === "GET") && !url.includes("comp=list")) {
       return {
         status: 200,
-        body: makeSwa(slug, { appName: "Old Name", appDescription: "Old desc" }),
+        body: JSON.stringify({ apps: [existingApp] }),
+        headers: { "content-type": "application/octet-stream" },
       };
     }
     return undefined;
   });
 
-  // updateTags (PATCH)
+  // Upload registry.json (saveRegistry)
   mockFetch((url, init) => {
-    if (url.includes(`/staticSites/${slug}`) && init?.method === "PATCH") {
-      return { status: 200, body: makeSwa(slug) };
+    if (url.includes("registry.json") && init?.method === "PUT") {
+      return { status: 201, body: null };
     }
     return undefined;
   });
 
-  // Dashboard rebuild mocks
+  // deploySite mocks:
+  // listBlobs for assembleSite
   mockFetch((url) => {
-    if (url.includes("/staticSites?") || url.includes("/staticSites&")) {
-      return { status: 200, body: { value: [makeSwa("apps")] } };
+    if (url.includes("comp=list")) {
+      return {
+        status: 200,
+        body: "<EnumerationResults><Blobs></Blobs></EnumerationResults>",
+        headers: { "content-type": "application/xml" },
+      };
     }
     return undefined;
   });
 
+  // getDeploymentToken
   mockFetch((url, init) => {
-    if (url.includes("/listSecrets") && init?.method === "POST") {
-      return { status: 200, body: { properties: { apiKey: "deploy-key" } } };
+    if (url.includes("listSecrets") && init?.method === "POST") {
+      return { status: 200, body: { properties: { apiKey: "test-key" } } };
     }
     return undefined;
   });
 
+  // getStaticWebApp (hostname)
   mockFetch((url, init) => {
-    if (
-      url.includes("/staticSites/apps") &&
-      (!init?.method || init.method === "GET") &&
-      !url.includes("/listSecrets")
-    ) {
-      return { status: 200, body: makeSwa("apps") };
+    if (url.includes("staticSites/ai-apps") && (!init?.method || init.method === "GET")) {
+      return { status: 200, body: { properties: { defaultHostname: "ai-apps.azurestaticapps.net" } } };
     }
     return undefined;
   });
 
+  // zipdeploy
   mockFetch((url, init) => {
     if (url.includes("zipdeploy") && init?.method === "POST") {
-      return { status: 200, body: {} };
+      return { status: 200, body: null };
     }
     return undefined;
   });
@@ -136,7 +129,7 @@ describe("app_update_info", () => {
     assert.ok(result.content[0].text.includes("app_name") || result.content[0].text.includes("app_description"));
   });
 
-  it("updates tags with new name and rebuilds dashboard", async () => {
+  it("updates name in registry and redeploys site", async () => {
     await setupTokenDir(mockTokens());
     mockUpdateFlow("my-app");
 
@@ -146,18 +139,22 @@ describe("app_update_info", () => {
     const parsed = JSON.parse(result.content[0].text);
     assert.equal(parsed.status, "ok");
 
-    // Verify PATCH was called with the new name
+    // Verify registry was saved with updated name
     const calls = getFetchCalls();
-    const patchCalls = calls.filter(
-      (c) => c.url.includes("/staticSites/my-app") && c.init?.method === "PATCH",
-    );
-    assert.equal(patchCalls.length, 1);
-    const patchBody = JSON.parse(patchCalls[0].init!.body as string);
-    assert.equal(patchBody.tags.appName, "New Name");
-    assert.equal(patchBody.tags.appDescription, undefined);
+    const putCalls = calls.filter((c) => c.url.includes("registry.json") && c.init?.method === "PUT");
+    assert.equal(putCalls.length, 1);
+    const bodyBytes = putCalls[0].init!.body as Uint8Array;
+    const savedRegistry = JSON.parse(Buffer.from(bodyBytes).toString("utf-8"));
+    const updatedApp = savedRegistry.apps.find((a: any) => a.slug === "my-app");
+    assert.equal(updatedApp.name, "New Name");
+    assert.equal(updatedApp.description, "Old desc"); // unchanged
+
+    // Verify zipdeploy was called (site redeployed)
+    const zipCalls = calls.filter((c) => c.url.includes("zipdeploy"));
+    assert.ok(zipCalls.length > 0, "Should redeploy site");
   });
 
-  it("updates tags with new description and rebuilds dashboard", async () => {
+  it("updates description in registry and redeploys site", async () => {
     await setupTokenDir(mockTokens());
     mockUpdateFlow("my-app");
 
@@ -165,16 +162,15 @@ describe("app_update_info", () => {
     assert.ok(!result.isError);
 
     const calls = getFetchCalls();
-    const patchCalls = calls.filter(
-      (c) => c.url.includes("/staticSites/my-app") && c.init?.method === "PATCH",
-    );
-    assert.equal(patchCalls.length, 1);
-    const patchBody = JSON.parse(patchCalls[0].init!.body as string);
-    assert.equal(patchBody.tags.appDescription, "New desc");
-    assert.equal(patchBody.tags.appName, undefined);
+    const putCalls = calls.filter((c) => c.url.includes("registry.json") && c.init?.method === "PUT");
+    const bodyBytes = putCalls[0].init!.body as Uint8Array;
+    const savedRegistry = JSON.parse(Buffer.from(bodyBytes).toString("utf-8"));
+    const updatedApp = savedRegistry.apps.find((a: any) => a.slug === "my-app");
+    assert.equal(updatedApp.name, "Old Name"); // unchanged
+    assert.equal(updatedApp.description, "New desc");
   });
 
-  it("updates tags with both name and description", async () => {
+  it("updates both name and description", async () => {
     await setupTokenDir(mockTokens());
     mockUpdateFlow("my-app");
 
@@ -186,28 +182,23 @@ describe("app_update_info", () => {
     assert.ok(!result.isError);
 
     const calls = getFetchCalls();
-    const patchCalls = calls.filter(
-      (c) => c.url.includes("/staticSites/my-app") && c.init?.method === "PATCH",
-    );
-    const patchBody = JSON.parse(patchCalls[0].init!.body as string);
-    assert.equal(patchBody.tags.appName, "New Name");
-    assert.equal(patchBody.tags.appDescription, "New desc");
-
-    // Dashboard was rebuilt (zipdeploy called)
-    const zipCalls = calls.filter((c) => c.url.includes("zipdeploy"));
-    assert.equal(zipCalls.length, 1);
+    const putCalls = calls.filter((c) => c.url.includes("registry.json") && c.init?.method === "PUT");
+    const bodyBytes = putCalls[0].init!.body as Uint8Array;
+    const savedRegistry = JSON.parse(Buffer.from(bodyBytes).toString("utf-8"));
+    const updatedApp = savedRegistry.apps.find((a: any) => a.slug === "my-app");
+    assert.equal(updatedApp.name, "New Name");
+    assert.equal(updatedApp.description, "New desc");
   });
 
-  it("returns error when app not found", async () => {
+  it("returns error when app not found in registry", async () => {
     await setupTokenDir(mockTokens());
+    // Empty registry
     mockFetch((url, init) => {
-      if (
-        url.includes("/staticSites/no-such-app") &&
-        (!init?.method || init.method === "GET")
-      ) {
+      if (url.includes("registry.json") && (!init?.method || init.method === "GET")) {
         return {
-          status: 404,
-          body: { error: { code: "ResourceNotFound", message: "Not found" } },
+          status: 200,
+          body: JSON.stringify({ apps: [] }),
+          headers: { "content-type": "application/octet-stream" },
         };
       }
       return undefined;
@@ -215,6 +206,6 @@ describe("app_update_info", () => {
 
     const result = await handler({ app_slug: "no-such-app", app_name: "New" });
     assert.ok(result.isError);
-    assert.ok(result.content[0].text.includes("not found") || result.content[0].text.includes("Not found"));
+    assert.ok(result.content[0].text.includes("not found"));
   });
 });

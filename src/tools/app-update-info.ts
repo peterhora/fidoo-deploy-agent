@@ -1,13 +1,12 @@
 import type { ToolDefinition, ToolHandler } from "./index.js";
 import { loadTokens, isTokenExpired } from "../auth/token-store.js";
-import { getStaticWebApp, updateTags } from "../azure/static-web-apps.js";
-import { AzureError } from "../azure/rest-client.js";
-import { deployDashboard } from "../deploy/dashboard.js";
+import { loadRegistry, saveRegistry, upsertApp } from "../deploy/registry.js";
+import { deploySite } from "../deploy/site-deploy.js";
 
 export const definition: ToolDefinition = {
   name: "app_update_info",
   description:
-    "Update an app's display name and/or description. Updates Azure resource tags and regenerates the dashboard. Does NOT re-deploy the app.",
+    "Update an app's display name and/or description. Updates the registry and redeploys the site. Does NOT re-deploy the app code.",
   inputSchema: {
     type: "object",
     properties: {
@@ -65,16 +64,24 @@ export const handler: ToolHandler = async (args) => {
   }
 
   try {
-    // Verify app exists
-    await getStaticWebApp(tokens.access_token, appSlug);
+    const token = tokens.access_token;
+    const registry = await loadRegistry(token);
+    const app = registry.apps.find((a) => a.slug === appSlug);
 
-    // Build tags to update
-    const tags: Record<string, string> = {};
-    if (appName) tags.appName = appName;
-    if (appDescription) tags.appDescription = appDescription;
+    if (!app) {
+      return {
+        content: [{ type: "text", text: `App "${appSlug}" not found.` }],
+        isError: true,
+      };
+    }
 
-    await updateTags(tokens.access_token, appSlug, tags);
-    await deployDashboard(tokens.access_token);
+    const updated = upsertApp(registry, {
+      ...app,
+      name: appName ?? app.name,
+      description: appDescription ?? app.description,
+    });
+    await saveRegistry(token, updated);
+    await deploySite(token, updated);
 
     return {
       content: [
@@ -88,12 +95,6 @@ export const handler: ToolHandler = async (args) => {
       ],
     };
   } catch (err) {
-    if (err instanceof AzureError && err.status === 404) {
-      return {
-        content: [{ type: "text", text: `App "${appSlug}" not found.` }],
-        isError: true,
-      };
-    }
     const message = err instanceof Error ? err.message : String(err);
     return {
       content: [{ type: "text", text: `Failed to update app info: ${message}` }],
