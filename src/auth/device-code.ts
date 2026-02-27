@@ -119,15 +119,19 @@ export async function refreshAccessToken(
   tenantId: string,
   clientId: string,
   refreshToken: string,
+  scope?: string,
 ): Promise<TokenResponse> {
+  const params: Record<string, string> = {
+    grant_type: "refresh_token",
+    client_id: clientId,
+    refresh_token: refreshToken,
+  };
+  if (scope) params.scope = scope;
+
   const response = await fetch(tokenUrl(tenantId), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: encodeForm({
-      grant_type: "refresh_token",
-      client_id: clientId,
-      refresh_token: refreshToken,
-    }),
+    body: encodeForm(params),
   });
 
   const body = await response.json() as TokenResponse | ErrorBody;

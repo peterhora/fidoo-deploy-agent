@@ -47,7 +47,7 @@ export async function azureFetch(path: string, options: AzureFetchOptions): Prom
     body: requestBody,
   });
 
-  if (response.status === 204) {
+  if (response.status === 204 || response.status === 202) {
     return null;
   }
 

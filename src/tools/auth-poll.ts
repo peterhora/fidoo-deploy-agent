@@ -1,5 +1,5 @@
 import type { ToolDefinition, ToolHandler } from "./index.js";
-import { pollForToken } from "../auth/device-code.js";
+import { pollForToken, refreshAccessToken } from "../auth/device-code.js";
 import { saveTokens } from "../auth/token-store.js";
 import { config } from "../config.js";
 
@@ -35,19 +35,31 @@ export const handler: ToolHandler = async (args) => {
   }
 
   try {
-    const tokenResponse = await pollForToken(
+    // Get ARM token from device code flow
+    const armTokenResponse = await pollForToken(
       config.tenantId,
       config.clientId,
       deviceCode,
       5, // Default 5-second polling interval per OAuth2 spec
     );
 
-    const expiresAt = Date.now() + tokenResponse.expires_in * 1000;
+    // Use refresh token to get a storage-scoped token
+    const storageTokenResponse = await refreshAccessToken(
+      config.tenantId,
+      config.clientId,
+      armTokenResponse.refresh_token,
+      config.storageScope,
+    );
+
+    const armExpiresAt = Date.now() + armTokenResponse.expires_in * 1000;
+    const storageExpiresAt = Date.now() + storageTokenResponse.expires_in * 1000;
 
     await saveTokens({
-      access_token: tokenResponse.access_token,
-      refresh_token: tokenResponse.refresh_token,
-      expires_at: expiresAt,
+      access_token: armTokenResponse.access_token,
+      storage_access_token: storageTokenResponse.access_token,
+      refresh_token: storageTokenResponse.refresh_token,
+      expires_at: armExpiresAt,
+      storage_expires_at: storageExpiresAt,
     });
 
     return {
@@ -56,7 +68,7 @@ export const handler: ToolHandler = async (args) => {
           type: "text",
           text: JSON.stringify({
             status: "authenticated",
-            expires_at: expiresAt,
+            expires_at: armExpiresAt,
           }),
         },
       ],

@@ -16,7 +16,19 @@ export async function assembleSite(
   // 2. Write registry.json at root
   await writeFile(join(outDir, "registry.json"), JSON.stringify(registry, null, 2), "utf-8");
 
-  // 3. Download all app files from blob into subdirectories
+  // 3. Write staticwebapp.config.json — require Entra ID login for all routes
+  const swaConfig = {
+    routes: [
+      { route: "/.auth/*", allowedRoles: ["anonymous"] },
+      { route: "/*", allowedRoles: ["authenticated"] },
+    ],
+    responseOverrides: {
+      "401": { redirect: "/.auth/login/aad", statusCode: 302 },
+    },
+  };
+  await writeFile(join(outDir, "staticwebapp.config.json"), JSON.stringify(swaConfig, null, 2), "utf-8");
+
+  // 4. Download all app files from blob into subdirectories
   const allBlobs = await listBlobs(token);
   const appBlobs = allBlobs.filter((name) => name !== "registry.json");
 

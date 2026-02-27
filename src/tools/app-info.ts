@@ -44,7 +44,7 @@ export const handler: ToolHandler = async (args) => {
   }
 
   try {
-    const registry = await loadRegistry(tokens.access_token);
+    const registry = await loadRegistry(tokens.storage_access_token);
     const app = registry.apps.find((a) => a.slug === appSlug);
 
     if (!app) {

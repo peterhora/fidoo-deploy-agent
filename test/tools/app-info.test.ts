@@ -13,10 +13,13 @@ import { handler } from "../../src/tools/app-info.js";
 let tokenDir: string;
 
 function mockTokens(overrides: Partial<{ expires_at: number }> = {}) {
+  const exp = overrides.expires_at ?? Date.now() + 3600_000;
   return {
     access_token: "test-token",
+    storage_access_token: "test-storage-token",
     refresh_token: "test-refresh",
-    expires_at: overrides.expires_at ?? Date.now() + 3600_000,
+    expires_at: exp,
+    storage_expires_at: exp,
   };
 }
 

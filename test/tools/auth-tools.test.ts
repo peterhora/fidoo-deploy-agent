@@ -47,8 +47,10 @@ describe("auth_status tool", () => {
   it("returns authenticated with expiry for valid token", async () => {
     const tokens: StoredTokens = {
       access_token: "access123",
+      storage_access_token: "storage123",
       refresh_token: "refresh456",
       expires_at: Date.now() + 60 * 60 * 1000, // 1 hour from now
+      storage_expires_at: Date.now() + 60 * 60 * 1000,
     };
     await saveTokens(tokens, tmpDir);
 
@@ -63,8 +65,10 @@ describe("auth_status tool", () => {
   it("returns expired when token is past expiry (with safety margin)", async () => {
     const tokens: StoredTokens = {
       access_token: "access123",
+      storage_access_token: "storage123",
       refresh_token: "refresh456",
       expires_at: Date.now() + 2 * 60 * 1000, // 2 minutes — within 5-min safety margin
+      storage_expires_at: Date.now() + 60 * 60 * 1000,
     };
     await saveTokens(tokens, tmpDir);
 
@@ -141,8 +145,24 @@ describe("auth_poll tool", () => {
   });
 
   it("polls for token, saves it, and returns success", async () => {
-    mockFetch((url) => {
+    let callCount = 0;
+    mockFetch((url, init) => {
       if (url.includes("/token")) {
+        callCount++;
+        const body = typeof init?.body === "string" ? init.body : "";
+        // Second call is the storage token refresh
+        if (body.includes("refresh_token") && body.includes("grant_type=refresh_token")) {
+          return {
+            status: 200,
+            body: {
+              access_token: "storage-new",
+              refresh_token: "refresh-updated",
+              expires_in: 3600,
+              token_type: "Bearer",
+            },
+          };
+        }
+        // First call is the device code poll
         return {
           status: 200,
           body: {
@@ -167,7 +187,8 @@ describe("auth_poll tool", () => {
     const storedRaw = fs.readFileSync(path.join(tmpDir, "tokens.json"), "utf-8");
     const stored = JSON.parse(storedRaw);
     assert.equal(stored.access_token, "access-new");
-    assert.equal(stored.refresh_token, "refresh-new");
+    assert.ok(stored.storage_access_token);
+    assert.ok(stored.refresh_token);
   });
 
   it("returns error when device_code is missing", async () => {

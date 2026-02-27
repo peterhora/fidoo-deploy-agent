@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, readFile, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import {
   mockFetch,
   getFetchCalls,
 } from "../helpers/mock-fetch.js";
+import { mockExecFile } from "../helpers/mock-swa-deploy.js";
 import { handler } from "../../src/tools/app-deploy.js";
 
 let tokenDir: string;
@@ -17,8 +18,10 @@ let appDir: string;
 function mockTokens() {
   return {
     access_token: "test-token",
+    storage_access_token: "test-storage-token",
     refresh_token: "test-refresh",
     expires_at: Date.now() + 3600_000,
+    storage_expires_at: Date.now() + 3600_000,
   };
 }
 
@@ -29,8 +32,10 @@ function mockTokensWithUpn(upn: string) {
   const sig = "";
   return {
     access_token: `${header}.${payload}.${sig}`,
+    storage_access_token: "test-storage-token",
     refresh_token: "test-refresh",
     expires_at: Date.now() + 3600_000,
+    storage_expires_at: Date.now() + 3600_000,
   };
 }
 
@@ -129,29 +134,10 @@ function mockBlobAndDeployFlow(slug: string, registryStatus: number = 404) {
     return undefined;
   });
 
-  // getDeploymentToken
+  // deploySwaDir: getDeploymentToken calls /listSecrets
   mockFetch((url, init) => {
-    if (url.includes("listSecrets") && init?.method === "POST") {
-      return { status: 200, body: { properties: { apiKey: "test-key" } } };
-    }
-    return undefined;
-  });
-
-  // getStaticWebApp (hostname)
-  mockFetch((url, init) => {
-    if (url.includes("staticSites/ai-apps") && (!init?.method || init.method === "GET")) {
-      return {
-        status: 200,
-        body: { properties: { defaultHostname: "ai-apps.azurestaticapps.net" } },
-      };
-    }
-    return undefined;
-  });
-
-  // zipdeploy
-  mockFetch((url, init) => {
-    if (url.includes("zipdeploy") && init?.method === "POST") {
-      return { status: 200, body: null };
+    if (url.includes("/listSecrets") && init?.method === "POST") {
+      return { status: 200, body: { properties: { apiKey: "test-deploy-key" } } };
     }
     return undefined;
   });
@@ -160,12 +146,14 @@ function mockBlobAndDeployFlow(slug: string, registryStatus: number = 404) {
 describe("app_deploy — first deploy", () => {
   beforeEach(async () => {
     installMockFetch();
+    mockExecFile();
     await setupTokenDir(mockTokens());
     await setupAppDir();
   });
 
   afterEach(async () => {
     restoreFetch();
+    mock.restoreAll();
     delete process.env.DEPLOY_AGENT_TOKEN_DIR;
     await rm(tokenDir, { recursive: true, force: true });
     await rm(appDir, { recursive: true, force: true });
@@ -240,11 +228,11 @@ describe("app_deploy — first deploy", () => {
     assert.equal(deployJson.appName, "My App");
     assert.equal(deployJson.appDescription, "A test app");
 
-    // Verify zipdeploy was called (site deploy)
-    const zipdeployCall = calls.find(
-      (c) => c.url.includes("zipdeploy") && c.init?.method === "POST",
+    // Verify listSecrets was called (site deploy via SWA client binary)
+    const listSecretsCall = calls.find(
+      (c) => c.url.includes("/listSecrets") && c.init?.method === "POST",
     );
-    assert.ok(zipdeployCall, "Should call zipdeploy for site deploy");
+    assert.ok(listSecretsCall, "Should call listSecrets to get deployment token");
   });
 
   it("returns URL with path-based pattern", async () => {
@@ -312,12 +300,14 @@ describe("app_deploy — first deploy", () => {
 describe("app_deploy — re-deploy", () => {
   beforeEach(async () => {
     installMockFetch();
+    mockExecFile();
     await setupTokenDir(mockTokens());
     await setupAppDir();
   });
 
   afterEach(async () => {
     restoreFetch();
+    mock.restoreAll();
     delete process.env.DEPLOY_AGENT_TOKEN_DIR;
     await rm(tokenDir, { recursive: true, force: true });
     await rm(appDir, { recursive: true, force: true });

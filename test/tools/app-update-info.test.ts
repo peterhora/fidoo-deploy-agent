@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -9,15 +9,19 @@ import {
   mockFetch,
   getFetchCalls,
 } from "../helpers/mock-fetch.js";
+import { mockExecFile } from "../helpers/mock-swa-deploy.js";
 import { handler } from "../../src/tools/app-update-info.js";
 
 let tokenDir: string;
 
 function mockTokens(overrides: Partial<{ expires_at: number }> = {}) {
+  const exp = overrides.expires_at ?? Date.now() + 3600_000;
   return {
     access_token: "test-token",
+    storage_access_token: "test-storage-token",
     refresh_token: "test-refresh",
-    expires_at: overrides.expires_at ?? Date.now() + 3600_000,
+    expires_at: exp,
+    storage_expires_at: exp,
   };
 }
 
@@ -65,26 +69,10 @@ function mockUpdateFlow(slug: string) {
     return undefined;
   });
 
-  // getDeploymentToken
+  // deploySwaDir: getDeploymentToken calls /listSecrets
   mockFetch((url, init) => {
-    if (url.includes("listSecrets") && init?.method === "POST") {
-      return { status: 200, body: { properties: { apiKey: "test-key" } } };
-    }
-    return undefined;
-  });
-
-  // getStaticWebApp (hostname)
-  mockFetch((url, init) => {
-    if (url.includes("staticSites/ai-apps") && (!init?.method || init.method === "GET")) {
-      return { status: 200, body: { properties: { defaultHostname: "ai-apps.azurestaticapps.net" } } };
-    }
-    return undefined;
-  });
-
-  // zipdeploy
-  mockFetch((url, init) => {
-    if (url.includes("zipdeploy") && init?.method === "POST") {
-      return { status: 200, body: null };
+    if (url.includes("/listSecrets") && init?.method === "POST") {
+      return { status: 200, body: { properties: { apiKey: "test-deploy-key" } } };
     }
     return undefined;
   });
@@ -93,10 +81,12 @@ function mockUpdateFlow(slug: string) {
 describe("app_update_info", () => {
   beforeEach(() => {
     installMockFetch();
+    mockExecFile();
   });
 
   afterEach(async () => {
     restoreFetch();
+    mock.restoreAll();
     delete process.env.DEPLOY_AGENT_TOKEN_DIR;
     if (tokenDir) await rm(tokenDir, { recursive: true, force: true });
   });
@@ -149,9 +139,9 @@ describe("app_update_info", () => {
     assert.equal(updatedApp.name, "New Name");
     assert.equal(updatedApp.description, "Old desc"); // unchanged
 
-    // Verify zipdeploy was called (site redeployed)
-    const zipCalls = calls.filter((c) => c.url.includes("zipdeploy"));
-    assert.ok(zipCalls.length > 0, "Should redeploy site");
+    // Verify listSecrets was called (site redeployed via SWA client binary)
+    const secretsCalls = calls.filter((c) => c.url.includes("/listSecrets"));
+    assert.ok(secretsCalls.length > 0, "Should redeploy site");
   });
 
   it("updates description in registry and redeploys site", async () => {

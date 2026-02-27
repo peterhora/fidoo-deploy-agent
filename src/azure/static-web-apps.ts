@@ -5,6 +5,7 @@
 
 import { config } from "../config.js";
 import { azureFetch } from "./rest-client.js";
+import { deploySwaContent } from "../deploy/swa-client.js";
 
 export interface StaticWebAppResource {
   id: string;
@@ -106,30 +107,13 @@ export async function updateTags(
   })) as StaticWebAppResource;
 }
 
-export async function deploySwaZip(
-  token: string,
+export async function deploySwaDir(
+  armToken: string,
   slug: string,
-  zipBuffer: Buffer,
+  outputDir: string,
 ): Promise<void> {
-  const apiKey = await getDeploymentToken(token, slug);
-  const swa = await getStaticWebApp(token, slug);
-  const hostname = (swa.properties as { defaultHostname: string }).defaultHostname;
-
-  const response = await fetch(
-    `https://${hostname}/api/zipdeploy?provider=SwaCli`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: apiKey,
-        "Content-Type": "application/octet-stream",
-      },
-      body: zipBuffer as unknown as BodyInit,
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(`Deployment failed: ${response.status} ${response.statusText}`);
-  }
+  const apiKey = await getDeploymentToken(armToken, slug);
+  await deploySwaContent(apiKey, outputDir);
 }
 
 export async function configureAuth(

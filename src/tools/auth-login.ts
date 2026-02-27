@@ -17,7 +17,7 @@ export const handler: ToolHandler = async (_args) => {
     const result = await startDeviceCodeFlow(
       config.tenantId,
       config.clientId,
-      config.scope,
+      config.armScope,
     );
 
     return {

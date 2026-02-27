@@ -121,7 +121,7 @@ describe("config", () => {
   it("has swaSlug with default", async () => {
     const { buildConfig } = await import("../src/config.js");
     const cfg = buildConfig();
-    assert.equal(cfg.swaSlug, "ai-apps");
+    assert.equal(cfg.swaSlug, "swa-ai-apps");
   });
 
   it("has swaSlug from env", async () => {
@@ -158,7 +158,8 @@ describe("config", () => {
   it("buildConfig preserves non-configurable values", async () => {
     const { buildConfig } = await import("../src/config.js");
     const cfg = buildConfig();
-    assert.equal(cfg.scope, "https://management.azure.com/.default offline_access");
+    assert.equal(cfg.armScope, "https://management.azure.com/.default offline_access");
+    assert.equal(cfg.storageScope, "https://storage.azure.com/.default offline_access");
     assert.equal(cfg.armBaseUrl, "https://management.azure.com");
     assert.equal(cfg.entraBaseUrl, "https://login.microsoftonline.com");
     assert.equal(cfg.swaApiVersion, "2022-09-01");

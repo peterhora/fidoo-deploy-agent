@@ -12,9 +12,11 @@ import path from "node:path";
 import os from "node:os";
 
 export interface StoredTokens {
-  access_token: string;
+  access_token: string;          // ARM-scoped token
+  storage_access_token: string;  // Storage-scoped token
   refresh_token: string;
-  expires_at: number; // Unix timestamp ms
+  expires_at: number; // Unix timestamp ms (ARM token)
+  storage_expires_at: number; // Unix timestamp ms (storage token)
 }
 
 const TOKENS_FILE = "tokens.json";
@@ -63,5 +65,6 @@ export async function clearTokens(
 }
 
 export function isTokenExpired(tokens: StoredTokens): boolean {
-  return tokens.expires_at - Date.now() < SAFETY_MARGIN_MS;
+  return tokens.expires_at - Date.now() < SAFETY_MARGIN_MS
+    || tokens.storage_expires_at - Date.now() < SAFETY_MARGIN_MS;
 }

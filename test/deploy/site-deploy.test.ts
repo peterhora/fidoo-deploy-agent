@@ -1,53 +1,51 @@
-import { describe, test, beforeEach, afterEach } from "node:test";
+import { describe, test, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { installMockFetch, restoreFetch, mockFetch, getFetchCalls } from "../helpers/mock-fetch.js";
+import { listSecretsMatcher, mockExecFile } from "../helpers/mock-swa-deploy.js";
 import { deploySite } from "../../src/deploy/site-deploy.js";
 
 describe("deploySite", () => {
-  beforeEach(() => installMockFetch());
-  afterEach(() => restoreFetch());
+  beforeEach(() => {
+    installMockFetch();
+    mockExecFile();
+  });
+  afterEach(() => {
+    restoreFetch();
+    mock.restoreAll();
+  });
 
-  test("assembles site and deploys zip to single SWA", async () => {
-    let zipDeployed = false;
-    mockFetch((url, init) => {
-      // listBlobs (for assembleSite)
+  function mockAllCalls() {
+    let deployTokenRequested = false;
+
+    // listBlobs (for assembleSite)
+    mockFetch((url) => {
       if (url.includes("comp=list")) {
         return { status: 200, body: "<EnumerationResults><Blobs></Blobs></EnumerationResults>", headers: { "content-type": "application/xml" } };
       }
-      // getDeploymentToken
-      if (url.includes("listSecrets")) {
-        return { status: 200, body: { properties: { apiKey: "test-key" } } };
-      }
-      // getStaticWebApp (for hostname)
-      if (url.includes("staticSites/ai-apps") && (!init?.method || init?.method === "GET")) {
-        return { status: 200, body: { properties: { defaultHostname: "ai-apps.azurestaticapps.net" } } };
-      }
-      // zipdeploy
-      if (url.includes("zipdeploy")) {
-        zipDeployed = true;
-        return { status: 200, body: null };
+      return undefined;
+    });
+
+    // listSecrets (for getDeploymentToken in deploySwaDir)
+    mockFetch((url, init) => {
+      if (url.includes("/listSecrets") && init?.method === "POST") {
+        deployTokenRequested = true;
+        return { status: 200, body: { properties: { apiKey: "test-deploy-key" } } };
       }
       return undefined;
     });
-    await deploySite("tok", { apps: [] });
-    assert.ok(zipDeployed, "ZIP should have been deployed");
+
+    return () => deployTokenRequested;
+  }
+
+  test("assembles site and deploys via SWA client binary", async () => {
+    const wasDeployTokenRequested = mockAllCalls();
+    await deploySite("arm-tok", "storage-tok", { apps: [] });
+    assert.ok(wasDeployTokenRequested(), "Should request deployment token via listSecrets");
   });
 
   test("cleans up temp directory even on success", async () => {
-    mockFetch((url, init) => {
-      if (url.includes("comp=list")) {
-        return { status: 200, body: "<EnumerationResults><Blobs></Blobs></EnumerationResults>", headers: { "content-type": "application/xml" } };
-      }
-      if (url.includes("listSecrets")) {
-        return { status: 200, body: { properties: { apiKey: "test-key" } } };
-      }
-      if (url.includes("staticSites/ai-apps") && (!init?.method || init?.method === "GET")) {
-        return { status: 200, body: { properties: { defaultHostname: "ai-apps.azurestaticapps.net" } } };
-      }
-      if (url.includes("zipdeploy")) return { status: 200, body: null };
-      return undefined;
-    });
+    mockAllCalls();
     // Verifying it doesn't throw is sufficient — temp dirs are cleaned in finally block
-    await deploySite("tok", { apps: [] });
+    await deploySite("arm-tok", "storage-tok", { apps: [] });
   });
 });

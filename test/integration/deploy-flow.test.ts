@@ -10,7 +10,7 @@
  * No per-app SWA, DNS, or dashboard_rebuild — just blob upload, registry
  * updates, and deploySite (assemble + zip + deploy to single SWA).
  */
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, readFile, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -21,6 +21,7 @@ import {
   mockFetch,
   getFetchCalls,
 } from "../helpers/mock-fetch.js";
+import { mockExecFile } from "../helpers/mock-swa-deploy.js";
 import { toolRegistry } from "../../src/tools/index.js";
 
 let tokenDir: string;
@@ -58,6 +59,7 @@ describe("integration: full deploy lifecycle (blob + registry)", () => {
 
   beforeEach(async () => {
     installMockFetch();
+    mockExecFile();
 
     // Initially no registry exists
     currentRegistry = { apps: [] };
@@ -77,6 +79,7 @@ describe("integration: full deploy lifecycle (blob + registry)", () => {
 
   afterEach(async () => {
     restoreFetch();
+    mock.restoreAll();
     delete process.env.DEPLOY_AGENT_TOKEN_DIR;
     await rm(tokenDir, { recursive: true, force: true });
     await rm(appDir, { recursive: true, force: true });
@@ -168,29 +171,10 @@ describe("integration: full deploy lifecycle (blob + registry)", () => {
       return undefined;
     });
 
-    // getDeploymentToken (listSecrets)
+    // deploySwaDir: getDeploymentToken calls /listSecrets
     mockFetch((url, init) => {
-      if (url.includes("listSecrets") && init?.method === "POST") {
-        return { status: 200, body: { properties: { apiKey: "deploy-key" } } };
-      }
-      return undefined;
-    });
-
-    // getStaticWebApp for the single SWA (hostname)
-    mockFetch((url, init) => {
-      if (url.includes("staticSites/ai-apps") && (!init?.method || init.method === "GET")) {
-        return {
-          status: 200,
-          body: { properties: { defaultHostname: "ai-apps.azurestaticapps.net" } },
-        };
-      }
-      return undefined;
-    });
-
-    // zipdeploy
-    mockFetch((url, init) => {
-      if (url.includes("zipdeploy") && init?.method === "POST") {
-        return { status: 200, body: null };
+      if (url.includes("/listSecrets") && init?.method === "POST") {
+        return { status: 200, body: { properties: { apiKey: "test-deploy-key" } } };
       }
       return undefined;
     });
@@ -296,11 +280,11 @@ describe("integration: full deploy lifecycle (blob + registry)", () => {
     assert.equal(currentRegistry.apps[0].slug, SLUG);
     assert.equal(currentRegistry.apps[0].deployedBy, "alice@fidoo.cloud");
 
-    // Verify zipdeploy was called (site deploy)
-    const zipdeployCalls = calls.filter(
-      (c) => c.url.includes("zipdeploy") && c.init?.method === "POST",
+    // Verify listSecrets was called (site deploy via SWA client binary)
+    const listSecretsCalls = calls.filter(
+      (c) => c.url.includes("/listSecrets") && c.init?.method === "POST",
     );
-    assert.ok(zipdeployCalls.length > 0, "Should call zipdeploy for site deploy");
+    assert.ok(listSecretsCalls.length > 0, "Should call listSecrets for site deploy");
 
     // ---- Step 5: app_list — verify app appears ----
     const listResult = await callTool("app_list");

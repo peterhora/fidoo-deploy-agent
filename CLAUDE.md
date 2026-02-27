@@ -43,7 +43,7 @@ MCP server plugin for Claude Code that deploys static HTML/JS apps to a single A
 | `DEPLOY_AGENT_STORAGE_ACCOUNT` | Azure Storage account name | (required) |
 | `DEPLOY_AGENT_CONTAINER_NAME` | Blob container name | `app-content` |
 | `DEPLOY_AGENT_APP_DOMAIN` | Custom domain for apps | `ai-apps.env.fidoo.cloud` |
-| `DEPLOY_AGENT_SWA_SLUG` | Single SWA resource name | `ai-apps` |
+| `DEPLOY_AGENT_SWA_SLUG` | Single SWA resource name | `swa-ai-apps` |
 | `DEPLOY_AGENT_TOKEN_DIR` | Override token storage dir | `~/.deploy-agent` |
 
 ## Key Conventions

@@ -94,7 +94,22 @@ az ad app permission add \
   --id "$DEPLOY_PLUGIN_APP_ID" \
   --api "797f4846-ba00-4fd7-ba43-dac1f8f63013" \
   --api-permissions "41094075-9dad-400e-a0bd-54e686782033=Scope" 2>/dev/null || true
-ok "API permission configured"
+ok "ARM API permission configured"
+
+# Add API permission: Azure Storage / user_impersonation
+# Resource App ID for Azure Storage: e406a681-f3d4-42a8-90b6-c2b029497af1
+# Permission ID for user_impersonation: 03e0da56-190b-40ad-a80c-ea378c433f7f
+info "Adding API permission (Azure Storage / user_impersonation)..."
+az ad app permission add \
+  --id "$DEPLOY_PLUGIN_APP_ID" \
+  --api "e406a681-f3d4-42a8-90b6-c2b029497af1" \
+  --api-permissions "03e0da56-190b-40ad-a80c-ea378c433f7f=Scope" 2>/dev/null || true
+ok "Storage API permission configured"
+
+# Grant admin consent for all configured API permissions
+info "Granting admin consent for API permissions..."
+az ad app permission admin-consent --id "$DEPLOY_PLUGIN_APP_ID" 2>/dev/null || true
+ok "Admin consent granted"
 
 # Create app_publisher app role (idempotent — check if it exists first)
 info "Checking app_publisher role..."
@@ -173,9 +188,10 @@ else
   ok "SWA '$SWA_NAME' created"
 fi
 
-# ── 5. RBAC ──────────────────────────────────────────────────────────────────
+# ── 5. Service Principal ─────────────────────────────────────────────────────
+# Needed for admin-consent grant. RBAC roles go on the security group below,
+# not on the SP — the plugin uses delegated (user) tokens via device code flow.
 
-# Create a service principal for the Deploy Plugin app if it doesn't exist
 info "Checking service principal for '$DEPLOY_PLUGIN_APP_NAME'..."
 DEPLOY_PLUGIN_SP_ID=$(az ad sp list --filter "appId eq '$DEPLOY_PLUGIN_APP_ID'" --query "[0].id" -o tsv 2>/dev/null || true)
 
@@ -187,29 +203,49 @@ else
   ok "Service principal already exists (objectId: $DEPLOY_PLUGIN_SP_ID)"
 fi
 
-# Assign Contributor on the resource group (idempotent — az role assignment create is already idempotent)
-RG_ID=$(az group show --name "$RESOURCE_GROUP" --query id -o tsv)
+# ── 6. Security Group & RBAC ───────────────────────────────────────────────
 
-info "Assigning Contributor role on '$RESOURCE_GROUP'..."
-az role assignment create \
-  --assignee "$DEPLOY_PLUGIN_APP_ID" \
-  --role "Contributor" \
-  --scope "$RG_ID" \
-  --output none 2>/dev/null || true
-ok "Contributor role assigned"
+GROUP_NAME="fi-aiapps-pub"
 
-# Assign Storage Blob Data Contributor on the storage account
+info "Checking security group '$GROUP_NAME'..."
+GROUP_ID=$(az ad group list --display-name "$GROUP_NAME" --query "[0].id" -o tsv 2>/dev/null || true)
+
+if [[ -n "$GROUP_ID" && "$GROUP_ID" != "None" ]]; then
+  ok "Security group '$GROUP_NAME' already exists (objectId: $GROUP_ID)"
+else
+  info "Creating security group '$GROUP_NAME'..."
+  GROUP_ID=$(az ad group create \
+    --display-name "$GROUP_NAME" \
+    --mail-nickname "$GROUP_NAME" \
+    --query id -o tsv)
+  ok "Security group '$GROUP_NAME' created (objectId: $GROUP_ID)"
+fi
+
+# Assign Storage Blob Data Contributor on the storage account to the group
 STORAGE_ID=$(az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
 
-info "Assigning Storage Blob Data Contributor on '$STORAGE_ACCOUNT'..."
+info "Assigning Storage Blob Data Contributor on '$STORAGE_ACCOUNT' to group '$GROUP_NAME'..."
 az role assignment create \
-  --assignee "$DEPLOY_PLUGIN_APP_ID" \
+  --assignee-object-id "$GROUP_ID" \
+  --assignee-principal-type Group \
   --role "Storage Blob Data Contributor" \
   --scope "$STORAGE_ID" \
   --output none 2>/dev/null || true
-ok "Storage Blob Data Contributor role assigned"
+ok "Storage Blob Data Contributor role assigned to group"
 
-# ── 6. Write infra/.env ──────────────────────────────────────────────────────
+# Assign Contributor on the SWA to the group
+SWA_ID=$(az staticwebapp show --name "$SWA_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
+
+info "Assigning Contributor on '$SWA_NAME' to group '$GROUP_NAME'..."
+az role assignment create \
+  --assignee-object-id "$GROUP_ID" \
+  --assignee-principal-type Group \
+  --role "Contributor" \
+  --scope "$SWA_ID" \
+  --output none 2>/dev/null || true
+ok "Contributor role assigned to group"
+
+# ── 7. Write infra/.env ──────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
@@ -260,6 +296,9 @@ echo "  Next steps:"
 echo "    1. Source the env file:  source infra/.env"
 echo "    2. Rebuild the plugin:  npm run build"
 echo ""
-echo "  Assign users:"
-echo "    - Publishers: Assign 'app_publisher' role on '$DEPLOY_PLUGIN_APP_NAME' enterprise app"
+echo "  Onboard publishers:"
+echo "    az ad group member add --group $GROUP_NAME --member-id <user-object-id>"
+echo ""
+echo "  View apps:"
+echo "    Any tenant member can view apps — Entra ID login is required."
 echo ""
