@@ -4,12 +4,16 @@
  * Spawns the server as a child process, sends JSON-RPC messages over stdin,
  * and verifies responses on stdout.
  */
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const SERVER_PATH = join(import.meta.dirname, "../../src/server.js");
+
+let tokenDir: string;
 
 interface JsonRpcResponse {
   jsonrpc: "2.0";
@@ -18,13 +22,14 @@ interface JsonRpcResponse {
   error?: { code: number; message: string };
 }
 
-function startServer(): {
+function startServer(env?: Record<string, string>): {
   send: (msg: object) => void;
   receive: () => Promise<JsonRpcResponse>;
   close: () => void;
 } {
   const child = spawn("node", [SERVER_PATH], {
     stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, ...env },
   });
 
   let buffer = "";
@@ -68,8 +73,16 @@ function startServer(): {
 }
 
 describe("integration: MCP protocol over stdio", () => {
+  beforeEach(async () => {
+    tokenDir = await mkdtemp(join(tmpdir(), "mcp-token-"));
+  });
+
+  afterEach(async () => {
+    await rm(tokenDir, { recursive: true, force: true });
+  });
+
   it("handles initialize → notifications/initialized → tools/list → tools/call sequence", async () => {
-    const server = startServer();
+    const server = startServer({ DEPLOY_AGENT_TOKEN_DIR: tokenDir });
 
     try {
       // ---- Initialize ----

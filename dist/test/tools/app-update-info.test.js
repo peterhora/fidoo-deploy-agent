@@ -1,9 +1,10 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { installMockFetch, restoreFetch, mockFetch, getFetchCalls, } from "../helpers/mock-fetch.js";
+import { mockExecFile } from "../helpers/mock-swa-deploy.js";
 import { handler } from "../../src/tools/app-update-info.js";
 let tokenDir;
 function mockTokens(overrides = {}) {
@@ -55,36 +56,10 @@ function mockUpdateFlow(slug) {
         }
         return undefined;
     });
-    // deploySwaZip mocks:
-    // Upload ZIP blob (_deploy-temp)
+    // deploySwaDir: getDeploymentToken calls /listSecrets
     mockFetch((url, init) => {
-        if (url.includes(".blob.core.windows.net") && url.includes("_deploy-temp") && init?.method === "PUT") {
-            return { status: 201, body: {} };
-        }
-        return undefined;
-    });
-    // getUserDelegationKey
-    mockFetch((url, init) => {
-        if (url.includes("userdelegationkey") && init?.method === "POST") {
-            return {
-                status: 200,
-                body: `<?xml version="1.0" encoding="utf-8"?><UserDelegationKey><SignedOid>oid</SignedOid><SignedTid>tid</SignedTid><SignedStart>2026-01-01T00:00:00Z</SignedStart><SignedExpiry>2026-01-01T01:00:00Z</SignedExpiry><SignedService>b</SignedService><SignedVersion>2024-11-04</SignedVersion><Value>${Buffer.from("fake-key-32-bytes-for-hmac-sign!").toString("base64")}</Value></UserDelegationKey>`,
-                headers: { "content-type": "application/xml" },
-            };
-        }
-        return undefined;
-    });
-    // ARM zipdeploy
-    mockFetch((url, init) => {
-        if (url.includes("management.azure.com") && url.includes("zipdeploy") && init?.method === "POST") {
-            return { status: 200, body: {} };
-        }
-        return undefined;
-    });
-    // blob delete (cleanup _deploy-temp)
-    mockFetch((url, init) => {
-        if (url.includes(".blob.core.windows.net") && init?.method === "DELETE") {
-            return { status: 202, body: {} };
+        if (url.includes("/listSecrets") && init?.method === "POST") {
+            return { status: 200, body: { properties: { apiKey: "test-deploy-key" } } };
         }
         return undefined;
     });
@@ -92,9 +67,11 @@ function mockUpdateFlow(slug) {
 describe("app_update_info", () => {
     beforeEach(() => {
         installMockFetch();
+        mockExecFile();
     });
     afterEach(async () => {
         restoreFetch();
+        mock.restoreAll();
         delete process.env.DEPLOY_AGENT_TOKEN_DIR;
         if (tokenDir)
             await rm(tokenDir, { recursive: true, force: true });
@@ -139,9 +116,9 @@ describe("app_update_info", () => {
         const updatedApp = savedRegistry.apps.find((a) => a.slug === "my-app");
         assert.equal(updatedApp.name, "New Name");
         assert.equal(updatedApp.description, "Old desc"); // unchanged
-        // Verify zipdeploy was called (site redeployed)
-        const zipCalls = calls.filter((c) => c.url.includes("zipdeploy"));
-        assert.ok(zipCalls.length > 0, "Should redeploy site");
+        // Verify listSecrets was called (site redeployed via SWA client binary)
+        const secretsCalls = calls.filter((c) => c.url.includes("/listSecrets"));
+        assert.ok(secretsCalls.length > 0, "Should redeploy site");
     });
     it("updates description in registry and redeploys site", async () => {
         await setupTokenDir(mockTokens());

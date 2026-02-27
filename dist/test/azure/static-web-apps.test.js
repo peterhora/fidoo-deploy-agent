@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { installMockFetch, restoreFetch, mockFetch, getFetchCalls, } from "../helpers/mock-fetch.js";
-import { createStaticWebApp, getStaticWebApp, deleteStaticWebApp, listStaticWebApps, getDeploymentToken, updateTags, configureAuth, deploySwaZip, } from "../../src/azure/static-web-apps.js";
+import { createStaticWebApp, getStaticWebApp, deleteStaticWebApp, listStaticWebApps, getDeploymentToken, updateTags, configureAuth, deploySwaDir, } from "../../src/azure/static-web-apps.js";
 const TOKEN = "test-access-token";
 const RESOURCE_ID = "/subscriptions/PLACEHOLDER_SUBSCRIPTION_ID/resourceGroups/rg-published-apps/providers/Microsoft.Web/staticSites/my-app";
 describe("createStaticWebApp", () => {
@@ -172,90 +172,24 @@ describe("configureAuth", () => {
         assert.equal(body.properties.identityProviders.azureActiveDirectory.registration.clientIdSettingName, "AZURE_CLIENT_ID");
     });
 });
-describe("deploySwaZip", () => {
+describe("deploySwaDir", () => {
     beforeEach(() => installMockFetch());
     afterEach(() => restoreFetch());
-    const STORAGE_TOKEN = "storage-token-xyz";
-    // Helper: mock all calls the new deploySwaZip makes
-    function mockDeploySwaZipCalls(zipDeployStatus = 200) {
-        // Mock blob upload (PUT to blob storage)
+    it("gets deployment token via listSecrets", async () => {
+        // Mock listSecrets
         mockFetch((url, init) => {
-            if (url.includes("blob.core.windows.net") && url.includes("_deploy-temp") && init?.method === "PUT") {
-                return { status: 201, body: {} };
+            if (url.includes("/listSecrets") && init?.method === "POST") {
+                return { status: 200, body: { properties: { apiKey: "deploy-key-abc" } } };
             }
             return undefined;
         });
-        // Mock getUserDelegationKey (POST to blob service)
-        mockFetch((url, init) => {
-            if (url.includes("blob.core.windows.net") && url.includes("userdelegationkey") && init?.method === "POST") {
-                return {
-                    status: 200,
-                    body: `<?xml version="1.0" encoding="utf-8"?>
-<UserDelegationKey>
-  <SignedOid>oid-123</SignedOid>
-  <SignedTid>tid-456</SignedTid>
-  <SignedStart>2026-01-01T00:00:00Z</SignedStart>
-  <SignedExpiry>2026-01-01T01:00:00Z</SignedExpiry>
-  <SignedService>b</SignedService>
-  <SignedVersion>2024-11-04</SignedVersion>
-  <Value>${Buffer.from("fake-key-32-bytes-for-hmac-sign!").toString("base64")}</Value>
-</UserDelegationKey>`,
-                    headers: { "content-type": "application/xml" },
-                };
-            }
-            return undefined;
-        });
-        // Mock ARM zipdeploy POST
-        mockFetch((url, init) => {
-            if (url.includes("management.azure.com") && url.includes("zipdeploy") && init?.method === "POST") {
-                if (zipDeployStatus === 200 || zipDeployStatus === 202) {
-                    return { status: zipDeployStatus, body: {} };
-                }
-                return { status: zipDeployStatus, body: { error: { code: "DeployFailed", message: "Deployment failed" } } };
-            }
-            return undefined;
-        });
-        // Mock blob delete (DELETE to blob storage)
-        mockFetch((url, init) => {
-            if (url.includes("blob.core.windows.net") && url.includes("_deploy-temp") && init?.method === "DELETE") {
-                return { status: 202, body: {} };
-            }
-            return undefined;
-        });
-    }
-    it("uploads ZIP to blob, calls ARM zipdeploy with SAS URL, cleans up", async () => {
-        mockDeploySwaZipCalls(200);
-        const zipBuffer = Buffer.from("fake-zip-content");
-        await deploySwaZip(TOKEN, STORAGE_TOKEN, "my-app", zipBuffer);
+        // deploySwaDir calls deploySwaContent which shells out to a binary.
+        // We only test the fetch part here (getDeploymentToken).
+        // The binary execution is tested at the integration level.
+        await assert.rejects(() => deploySwaDir(TOKEN, "my-app", "/tmp/test-output"));
         const calls = getFetchCalls();
-        // Verify blob upload
-        const uploadCall = calls.find((c) => c.url.includes("_deploy-temp") && c.init?.method === "PUT");
-        assert.ok(uploadCall, "Should upload ZIP to blob storage");
-        // Verify ARM zipdeploy call
-        const zipCall = calls.find((c) => c.url.includes("management.azure.com") && c.url.includes("zipdeploy"));
-        assert.ok(zipCall, "Should call ARM zipdeploy API");
-        assert.equal(zipCall.init?.method, "POST");
-        const body = JSON.parse(zipCall.init?.body);
-        assert.ok(body.properties.appZipUrl, "Should include appZipUrl");
-        assert.ok(body.properties.appZipUrl.includes("sig="), "appZipUrl should contain SAS signature");
-        // Verify cleanup
-        const deleteCall = calls.find((c) => c.url.includes("_deploy-temp") && c.init?.method === "DELETE");
-        assert.ok(deleteCall, "Should delete temp blob");
-    });
-    it("accepts 202 async response", async () => {
-        mockDeploySwaZipCalls(202);
-        const zipBuffer = Buffer.from("fake-zip-content");
-        await deploySwaZip(TOKEN, STORAGE_TOKEN, "my-app", zipBuffer);
-        // Should not throw
-    });
-    it("throws on deployment failure and still cleans up", async () => {
-        mockDeploySwaZipCalls(400);
-        const zipBuffer = Buffer.from("bad-zip");
-        await assert.rejects(() => deploySwaZip(TOKEN, STORAGE_TOKEN, "my-app", zipBuffer));
-        // Verify cleanup still happened
-        const calls = getFetchCalls();
-        const deleteCall = calls.find((c) => c.url.includes("_deploy-temp") && c.init?.method === "DELETE");
-        assert.ok(deleteCall, "Should still clean up temp blob on failure");
+        const secretsCall = calls.find((c) => c.url.includes("/listSecrets"));
+        assert.ok(secretsCall, "Should call listSecrets to get deployment token");
     });
 });
 //# sourceMappingURL=static-web-apps.test.js.map

@@ -10,12 +10,13 @@
  * No per-app SWA, DNS, or dashboard_rebuild — just blob upload, registry
  * updates, and deploySite (assemble + zip + deploy to single SWA).
  */
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, readFile, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { installMockFetch, restoreFetch, mockFetch, getFetchCalls, } from "../helpers/mock-fetch.js";
+import { mockExecFile } from "../helpers/mock-swa-deploy.js";
 import { toolRegistry } from "../../src/tools/index.js";
 let tokenDir;
 let appDir;
@@ -44,6 +45,7 @@ describe("integration: full deploy lifecycle (blob + registry)", () => {
     let currentRegistry;
     beforeEach(async () => {
         installMockFetch();
+        mockExecFile();
         // Initially no registry exists
         currentRegistry = { apps: [] };
         // Set up token dir (empty — not authenticated yet)
@@ -59,6 +61,7 @@ describe("integration: full deploy lifecycle (blob + registry)", () => {
     });
     afterEach(async () => {
         restoreFetch();
+        mock.restoreAll();
         delete process.env.DEPLOY_AGENT_TOKEN_DIR;
         await rm(tokenDir, { recursive: true, force: true });
         await rm(appDir, { recursive: true, force: true });
@@ -137,22 +140,10 @@ describe("integration: full deploy lifecycle (blob + registry)", () => {
             }
             return undefined;
         });
-        // deploySwaZip mocks:
-        // getUserDelegationKey
+        // deploySwaDir: getDeploymentToken calls /listSecrets
         mockFetch((url, init) => {
-            if (url.includes("userdelegationkey") && init?.method === "POST") {
-                return {
-                    status: 200,
-                    body: `<?xml version="1.0" encoding="utf-8"?><UserDelegationKey><SignedOid>oid</SignedOid><SignedTid>tid</SignedTid><SignedStart>2026-01-01T00:00:00Z</SignedStart><SignedExpiry>2026-01-01T01:00:00Z</SignedExpiry><SignedService>b</SignedService><SignedVersion>2024-11-04</SignedVersion><Value>${Buffer.from("fake-key-32-bytes-for-hmac-sign!").toString("base64")}</Value></UserDelegationKey>`,
-                    headers: { "content-type": "application/xml" },
-                };
-            }
-            return undefined;
-        });
-        // ARM zipdeploy
-        mockFetch((url, init) => {
-            if (url.includes("management.azure.com") && url.includes("zipdeploy") && init?.method === "POST") {
-                return { status: 200, body: {} };
+            if (url.includes("/listSecrets") && init?.method === "POST") {
+                return { status: 200, body: { properties: { apiKey: "test-deploy-key" } } };
             }
             return undefined;
         });
@@ -237,9 +228,9 @@ describe("integration: full deploy lifecycle (blob + registry)", () => {
         assert.equal(currentRegistry.apps.length, 1);
         assert.equal(currentRegistry.apps[0].slug, SLUG);
         assert.equal(currentRegistry.apps[0].deployedBy, "alice@fidoo.cloud");
-        // Verify zipdeploy was called (site deploy)
-        const zipdeployCalls = calls.filter((c) => c.url.includes("zipdeploy") && c.init?.method === "POST");
-        assert.ok(zipdeployCalls.length > 0, "Should call zipdeploy for site deploy");
+        // Verify listSecrets was called (site deploy via SWA client binary)
+        const listSecretsCalls = calls.filter((c) => c.url.includes("/listSecrets") && c.init?.method === "POST");
+        assert.ok(listSecretsCalls.length > 0, "Should call listSecrets for site deploy");
         // ---- Step 5: app_list — verify app appears ----
         const listResult = await callTool("app_list");
         assert.ok(!listResult.isError, `app_list failed: ${listResult.content[0].text}`);

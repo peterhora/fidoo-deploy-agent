@@ -1,9 +1,10 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { installMockFetch, restoreFetch, mockFetch, getFetchCalls } from "../helpers/mock-fetch.js";
+import { mockExecFile } from "../helpers/mock-swa-deploy.js";
 import { handler } from "../../src/tools/app-delete.js";
 
 let tokenDir: string;
@@ -81,32 +82,10 @@ function mockDeleteFlow(slug: string) {
     return undefined;
   });
 
-  // deploySwaZip mocks:
-
-  // Upload ZIP blob (_deploy-temp)
+  // deploySwaDir: getDeploymentToken calls /listSecrets
   mockFetch((url, init) => {
-    if (url.includes(".blob.core.windows.net") && url.includes("_deploy-temp") && init?.method === "PUT") {
-      return { status: 201, body: {} };
-    }
-    return undefined;
-  });
-
-  // getUserDelegationKey
-  mockFetch((url, init) => {
-    if (url.includes("userdelegationkey") && init?.method === "POST") {
-      return {
-        status: 200,
-        body: `<?xml version="1.0" encoding="utf-8"?><UserDelegationKey><SignedOid>oid</SignedOid><SignedTid>tid</SignedTid><SignedStart>2026-01-01T00:00:00Z</SignedStart><SignedExpiry>2026-01-01T01:00:00Z</SignedExpiry><SignedService>b</SignedService><SignedVersion>2024-11-04</SignedVersion><Value>${Buffer.from("fake-key-32-bytes-for-hmac-sign!").toString("base64")}</Value></UserDelegationKey>`,
-        headers: { "content-type": "application/xml" },
-      };
-    }
-    return undefined;
-  });
-
-  // ARM zipdeploy
-  mockFetch((url, init) => {
-    if (url.includes("management.azure.com") && url.includes("zipdeploy") && init?.method === "POST") {
-      return { status: 200, body: {} };
+    if (url.includes("/listSecrets") && init?.method === "POST") {
+      return { status: 200, body: { properties: { apiKey: "test-deploy-key" } } };
     }
     return undefined;
   });
@@ -115,10 +94,12 @@ function mockDeleteFlow(slug: string) {
 describe("app_delete", () => {
   beforeEach(() => {
     installMockFetch();
+    mockExecFile();
   });
 
   afterEach(async () => {
     restoreFetch();
+    mock.restoreAll();
     delete process.env.DEPLOY_AGENT_TOKEN_DIR;
     if (tokenDir) await rm(tokenDir, { recursive: true, force: true });
   });
@@ -160,9 +141,9 @@ describe("app_delete", () => {
     const deleteCalls = calls.filter((c) => c.init?.method === "DELETE");
     assert.ok(deleteCalls.length > 0, "Should have DELETE calls for blob cleanup");
 
-    // Verify zipdeploy was called (site redeployed)
-    const zipCalls = calls.filter((c) => c.url.includes("zipdeploy"));
-    assert.ok(zipCalls.length > 0, "Should redeploy site after delete");
+    // Verify listSecrets was called (site redeployed via SWA client binary)
+    const secretsCalls = calls.filter((c) => c.url.includes("/listSecrets"));
+    assert.ok(secretsCalls.length > 0, "Should redeploy site after delete");
   });
 
   it("propagates errors from blob operations", async () => {

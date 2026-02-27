@@ -19,5 +19,5 @@ export declare function deleteStaticWebApp(token: string, slug: string): Promise
 export declare function listStaticWebApps(token: string): Promise<StaticWebAppResource[]>;
 export declare function getDeploymentToken(token: string, slug: string): Promise<string>;
 export declare function updateTags(token: string, slug: string, tags: Record<string, string>): Promise<StaticWebAppResource>;
-export declare function deploySwaZip(armToken: string, storageToken: string, slug: string, zipBuffer: Buffer): Promise<void>;
+export declare function deploySwaDir(armToken: string, slug: string, outputDir: string): Promise<void>;
 export declare function configureAuth(token: string, slug: string): Promise<void>;
