@@ -12,7 +12,7 @@
         "DEPLOY_AGENT_STORAGE_ACCOUNT": "stpublishedapps",
         "DEPLOY_AGENT_CONTAINER_NAME": "app-content",
         "DEPLOY_AGENT_APP_DOMAIN": "ai-apps.env.fidoo.cloud",
-        "DEPLOY_AGENT_SWA_SLUG": "ai-apps"
+        "DEPLOY_AGENT_SWA_SLUG": "swa-ai-apps"
       }
     }
   }

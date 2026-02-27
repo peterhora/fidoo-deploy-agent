@@ -7,7 +7,7 @@ export function buildConfig() {
     storageAccount: process.env.DEPLOY_AGENT_STORAGE_ACCOUNT ?? "PLACEHOLDER_STORAGE_ACCOUNT",
     containerName: process.env.DEPLOY_AGENT_CONTAINER_NAME ?? "app-content",
     appDomain: process.env.DEPLOY_AGENT_APP_DOMAIN ?? "ai-apps.env.fidoo.cloud",
-    swaSlug: process.env.DEPLOY_AGENT_SWA_SLUG ?? "ai-apps",
+    swaSlug: process.env.DEPLOY_AGENT_SWA_SLUG ?? "swa-ai-apps",
     armScope: "https://management.azure.com/.default offline_access",
     storageScope: "https://storage.azure.com/.default offline_access",
     armBaseUrl: "https://management.azure.com",
