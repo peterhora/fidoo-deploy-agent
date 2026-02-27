@@ -38,12 +38,13 @@ export const handler = async (args) => {
         };
     }
     try {
-        const token = tokens.access_token;
-        await deleteBlobsByPrefix(token, appSlug + "/");
-        const registry = await loadRegistry(token);
+        const armToken = tokens.access_token;
+        const storageToken = tokens.storage_access_token;
+        await deleteBlobsByPrefix(storageToken, appSlug + "/");
+        const registry = await loadRegistry(storageToken);
         const updated = removeApp(registry, appSlug);
-        await saveRegistry(token, updated);
-        await deploySite(token, updated);
+        await saveRegistry(storageToken, updated);
+        await deploySite(armToken, storageToken, updated);
         return {
             content: [
                 {

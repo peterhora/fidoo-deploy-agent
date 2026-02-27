@@ -8,13 +8,13 @@ import { createZipBuffer } from "./zip.js";
 import { assembleSite } from "./assemble.js";
 import type { Registry } from "./registry.js";
 
-export async function deploySite(token: string, registry: Registry): Promise<void> {
+export async function deploySite(armToken: string, storageToken: string, registry: Registry): Promise<void> {
   const tempDir = await mkdtemp(join(tmpdir(), "deploy-agent-site-"));
   try {
-    await assembleSite(token, registry, tempDir);
+    await assembleSite(storageToken, registry, tempDir);
     const files = await collectFiles(tempDir);
     const zipBuffer = await createZipBuffer(tempDir, files);
-    await deploySwaZip(token, config.swaSlug, zipBuffer);
+    await deploySwaZip(armToken, config.swaSlug, zipBuffer);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

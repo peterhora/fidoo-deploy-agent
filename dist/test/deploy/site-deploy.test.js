@@ -27,7 +27,7 @@ describe("deploySite", () => {
             }
             return undefined;
         });
-        await deploySite("tok", { apps: [] });
+        await deploySite("arm-tok", "storage-tok", { apps: [] });
         assert.ok(zipDeployed, "ZIP should have been deployed");
     });
     test("cleans up temp directory even on success", async () => {
@@ -46,7 +46,7 @@ describe("deploySite", () => {
             return undefined;
         });
         // Verifying it doesn't throw is sufficient — temp dirs are cleaned in finally block
-        await deploySite("tok", { apps: [] });
+        await deploySite("arm-tok", "storage-tok", { apps: [] });
     });
 });
 //# sourceMappingURL=site-deploy.test.js.map

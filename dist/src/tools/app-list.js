@@ -24,7 +24,7 @@ export const handler = async (_args) => {
         };
     }
     try {
-        const registry = await loadRegistry(tokens.access_token);
+        const registry = await loadRegistry(tokens.storage_access_token);
         const apps = registry.apps.map((app) => ({
             slug: app.slug,
             name: app.name,

@@ -57,7 +57,8 @@ async function uploadAppToBlob(
 }
 
 async function firstDeploy(
-  token: string,
+  armToken: string,
+  storageToken: string,
   folder: string,
   appName: string,
   appDescription: string,
@@ -65,20 +66,20 @@ async function firstDeploy(
   const slug = generateSlug(appName);
 
   const files = await collectFiles(folder);
-  await uploadAppToBlob(token, slug, folder, files);
+  await uploadAppToBlob(storageToken, slug, folder, files);
 
-  let registry = await loadRegistry(token);
+  let registry = await loadRegistry(storageToken);
   const entry = {
     slug,
     name: appName,
     description: appDescription,
     deployedAt: new Date().toISOString(),
-    deployedBy: extractUpn(token) || "unknown",
+    deployedBy: extractUpn(armToken) || "unknown",
   };
   registry = upsertApp(registry, entry);
-  await saveRegistry(token, registry);
+  await saveRegistry(storageToken, registry);
 
-  await deploySite(token, registry);
+  await deploySite(armToken, storageToken, registry);
 
   await writeDeployConfig(folder, {
     appSlug: slug,
@@ -92,28 +93,29 @@ async function firstDeploy(
 }
 
 async function redeploy(
-  token: string,
+  armToken: string,
+  storageToken: string,
   folder: string,
   existingConfig: { appSlug: string; appName: string; appDescription: string },
 ): Promise<ToolResult> {
   const { appSlug } = existingConfig;
 
   const files = await collectFiles(folder);
-  await uploadAppToBlob(token, appSlug, folder, files);
+  await uploadAppToBlob(storageToken, appSlug, folder, files);
 
-  let registry = await loadRegistry(token);
+  let registry = await loadRegistry(storageToken);
   const existing = registry.apps.find((a) => a.slug === appSlug);
   const entry = {
     slug: appSlug,
     name: existing?.name || existingConfig.appName,
     description: existing?.description || existingConfig.appDescription,
     deployedAt: new Date().toISOString(),
-    deployedBy: extractUpn(token) || "unknown",
+    deployedBy: extractUpn(armToken) || "unknown",
   };
   registry = upsertApp(registry, entry);
-  await saveRegistry(token, registry);
+  await saveRegistry(storageToken, registry);
 
-  await deploySite(token, registry);
+  await deploySite(armToken, storageToken, registry);
 
   const url = `https://${config.appDomain}/${appSlug}/`;
   return successResult(JSON.stringify({ status: "ok", url, slug: appSlug }));
@@ -141,12 +143,13 @@ export const handler: ToolHandler = async (args) => {
     return errorResult("Token expired. Run auth_login to re-authenticate.");
   }
 
-  const token = tokens.access_token;
+  const armToken = tokens.access_token;
+  const storageToken = tokens.storage_access_token;
 
   // Check for existing .deploy.json
   const existing = await readDeployConfig(folder);
   if (existing) {
-    return redeploy(token, folder, existing);
+    return redeploy(armToken, storageToken, folder, existing);
   }
 
   // First deploy — need app_name and app_description
@@ -160,5 +163,5 @@ export const handler: ToolHandler = async (args) => {
     return errorResult("First deploy requires app_description argument.");
   }
 
-  return firstDeploy(token, folder, appName, appDescription);
+  return firstDeploy(armToken, storageToken, folder, appName, appDescription);
 };

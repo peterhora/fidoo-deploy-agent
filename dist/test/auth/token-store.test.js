@@ -12,8 +12,10 @@ let tmpDir;
 function makeTokens(overrides) {
     return {
         access_token: "access123",
+        storage_access_token: "storage123",
         refresh_token: "refresh456",
         expires_at: Date.now() + 3600 * 1000,
+        storage_expires_at: Date.now() + 3600 * 1000,
         ...overrides,
     };
 }

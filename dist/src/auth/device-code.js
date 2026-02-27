@@ -63,15 +63,18 @@ export async function pollForToken(tenantId, clientId, deviceCode, interval) {
         throw new Error(`Token request failed: ${err.error}${err.error_description ? ` — ${err.error_description}` : ""}`);
     }
 }
-export async function refreshAccessToken(tenantId, clientId, refreshToken) {
+export async function refreshAccessToken(tenantId, clientId, refreshToken, scope) {
+    const params = {
+        grant_type: "refresh_token",
+        client_id: clientId,
+        refresh_token: refreshToken,
+    };
+    if (scope)
+        params.scope = scope;
     const response = await fetch(tokenUrl(tenantId), {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: encodeForm({
-            grant_type: "refresh_token",
-            client_id: clientId,
-            refresh_token: refreshToken,
-        }),
+        body: encodeForm(params),
     });
     const body = await response.json();
     if (!response.ok) {

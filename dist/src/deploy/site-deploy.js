@@ -6,13 +6,13 @@ import { deploySwaZip } from "../azure/static-web-apps.js";
 import { collectFiles } from "./deny-list.js";
 import { createZipBuffer } from "./zip.js";
 import { assembleSite } from "./assemble.js";
-export async function deploySite(token, registry) {
+export async function deploySite(armToken, storageToken, registry) {
     const tempDir = await mkdtemp(join(tmpdir(), "deploy-agent-site-"));
     try {
-        await assembleSite(token, registry, tempDir);
+        await assembleSite(storageToken, registry, tempDir);
         const files = await collectFiles(tempDir);
         const zipBuffer = await createZipBuffer(tempDir, files);
-        await deploySwaZip(token, config.swaSlug, zipBuffer);
+        await deploySwaZip(armToken, config.swaSlug, zipBuffer);
     }
     finally {
         await rm(tempDir, { recursive: true, force: true });

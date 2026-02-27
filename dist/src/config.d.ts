@@ -7,7 +7,8 @@ export declare function buildConfig(): {
     containerName: string;
     appDomain: string;
     swaSlug: string;
-    scope: string;
+    armScope: string;
+    storageScope: string;
     armBaseUrl: string;
     entraBaseUrl: string;
     swaApiVersion: string;
@@ -25,7 +26,8 @@ export declare const config: {
     containerName: string;
     appDomain: string;
     swaSlug: string;
-    scope: string;
+    armScope: string;
+    storageScope: string;
     armBaseUrl: string;
     entraBaseUrl: string;
     swaApiVersion: string;

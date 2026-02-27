@@ -7,10 +7,13 @@ import { installMockFetch, restoreFetch, mockFetch, getFetchCalls, } from "../he
 import { handler } from "../../src/tools/app-update-info.js";
 let tokenDir;
 function mockTokens(overrides = {}) {
+    const exp = overrides.expires_at ?? Date.now() + 3600_000;
     return {
         access_token: "test-token",
+        storage_access_token: "test-storage-token",
         refresh_token: "test-refresh",
-        expires_at: overrides.expires_at ?? Date.now() + 3600_000,
+        expires_at: exp,
+        storage_expires_at: exp,
     };
 }
 async function setupTokenDir(tokens) {

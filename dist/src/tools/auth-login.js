@@ -10,7 +10,7 @@ export const definition = {
 };
 export const handler = async (_args) => {
     try {
-        const result = await startDeviceCodeFlow(config.tenantId, config.clientId, config.scope);
+        const result = await startDeviceCodeFlow(config.tenantId, config.clientId, config.armScope);
         return {
             content: [
                 {

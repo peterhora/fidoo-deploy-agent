@@ -42,21 +42,21 @@ async function uploadAppToBlob(token, slug, folder, files) {
         await uploadBlob(token, `${slug}/${relativePath}`, content);
     }));
 }
-async function firstDeploy(token, folder, appName, appDescription) {
+async function firstDeploy(armToken, storageToken, folder, appName, appDescription) {
     const slug = generateSlug(appName);
     const files = await collectFiles(folder);
-    await uploadAppToBlob(token, slug, folder, files);
-    let registry = await loadRegistry(token);
+    await uploadAppToBlob(storageToken, slug, folder, files);
+    let registry = await loadRegistry(storageToken);
     const entry = {
         slug,
         name: appName,
         description: appDescription,
         deployedAt: new Date().toISOString(),
-        deployedBy: extractUpn(token) || "unknown",
+        deployedBy: extractUpn(armToken) || "unknown",
     };
     registry = upsertApp(registry, entry);
-    await saveRegistry(token, registry);
-    await deploySite(token, registry);
+    await saveRegistry(storageToken, registry);
+    await deploySite(armToken, storageToken, registry);
     await writeDeployConfig(folder, {
         appSlug: slug,
         appName,
@@ -66,22 +66,22 @@ async function firstDeploy(token, folder, appName, appDescription) {
     const url = `https://${config.appDomain}/${slug}/`;
     return successResult(JSON.stringify({ status: "ok", url, slug }));
 }
-async function redeploy(token, folder, existingConfig) {
+async function redeploy(armToken, storageToken, folder, existingConfig) {
     const { appSlug } = existingConfig;
     const files = await collectFiles(folder);
-    await uploadAppToBlob(token, appSlug, folder, files);
-    let registry = await loadRegistry(token);
+    await uploadAppToBlob(storageToken, appSlug, folder, files);
+    let registry = await loadRegistry(storageToken);
     const existing = registry.apps.find((a) => a.slug === appSlug);
     const entry = {
         slug: appSlug,
         name: existing?.name || existingConfig.appName,
         description: existing?.description || existingConfig.appDescription,
         deployedAt: new Date().toISOString(),
-        deployedBy: extractUpn(token) || "unknown",
+        deployedBy: extractUpn(armToken) || "unknown",
     };
     registry = upsertApp(registry, entry);
-    await saveRegistry(token, registry);
-    await deploySite(token, registry);
+    await saveRegistry(storageToken, registry);
+    await deploySite(armToken, storageToken, registry);
     const url = `https://${config.appDomain}/${appSlug}/`;
     return successResult(JSON.stringify({ status: "ok", url, slug: appSlug }));
 }
@@ -105,11 +105,12 @@ export const handler = async (args) => {
     if (isTokenExpired(tokens)) {
         return errorResult("Token expired. Run auth_login to re-authenticate.");
     }
-    const token = tokens.access_token;
+    const armToken = tokens.access_token;
+    const storageToken = tokens.storage_access_token;
     // Check for existing .deploy.json
     const existing = await readDeployConfig(folder);
     if (existing) {
-        return redeploy(token, folder, existing);
+        return redeploy(armToken, storageToken, folder, existing);
     }
     // First deploy — need app_name and app_description
     const appName = args.app_name;
@@ -120,6 +121,6 @@ export const handler = async (args) => {
     if (!appDescription) {
         return errorResult("First deploy requires app_description argument.");
     }
-    return firstDeploy(token, folder, appName, appDescription);
+    return firstDeploy(armToken, storageToken, folder, appName, appDescription);
 };
 //# sourceMappingURL=app-deploy.js.map

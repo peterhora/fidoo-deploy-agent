@@ -10,8 +10,10 @@ let appDir;
 function mockTokens() {
     return {
         access_token: "test-token",
+        storage_access_token: "test-storage-token",
         refresh_token: "test-refresh",
         expires_at: Date.now() + 3600_000,
+        storage_expires_at: Date.now() + 3600_000,
     };
 }
 /** Create a JWT with a UPN claim for testing extractUpn */
@@ -21,8 +23,10 @@ function mockTokensWithUpn(upn) {
     const sig = "";
     return {
         access_token: `${header}.${payload}.${sig}`,
+        storage_access_token: "test-storage-token",
         refresh_token: "test-refresh",
         expires_at: Date.now() + 3600_000,
+        storage_expires_at: Date.now() + 3600_000,
     };
 }
 async function setupTokenDir(tokens) {

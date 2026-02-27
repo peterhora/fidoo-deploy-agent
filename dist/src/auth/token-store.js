@@ -44,6 +44,7 @@ export async function clearTokens(dir = getTokenDir()) {
     }
 }
 export function isTokenExpired(tokens) {
-    return tokens.expires_at - Date.now() < SAFETY_MARGIN_MS;
+    return tokens.expires_at - Date.now() < SAFETY_MARGIN_MS
+        || tokens.storage_expires_at - Date.now() < SAFETY_MARGIN_MS;
 }
 //# sourceMappingURL=token-store.js.map

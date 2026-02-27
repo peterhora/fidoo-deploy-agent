@@ -55,8 +55,9 @@ export const handler = async (args) => {
         };
     }
     try {
-        const token = tokens.access_token;
-        const registry = await loadRegistry(token);
+        const armToken = tokens.access_token;
+        const storageToken = tokens.storage_access_token;
+        const registry = await loadRegistry(storageToken);
         const app = registry.apps.find((a) => a.slug === appSlug);
         if (!app) {
             return {
@@ -69,8 +70,8 @@ export const handler = async (args) => {
             name: appName ?? app.name,
             description: appDescription ?? app.description,
         });
-        await saveRegistry(token, updated);
-        await deploySite(token, updated);
+        await saveRegistry(storageToken, updated);
+        await deploySite(armToken, storageToken, updated);
         return {
             content: [
                 {
