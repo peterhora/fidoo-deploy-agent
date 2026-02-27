@@ -223,7 +223,6 @@ else
   GROUP_ID=$(az ad group create \
     --display-name "$GROUP_NAME" \
     --mail-nickname "$GROUP_NAME" \
-    --security-enabled true \
     --query id -o tsv)
   ok "Security group '$GROUP_NAME' created (objectId: $GROUP_ID)"
 fi
