@@ -1,14 +1,12 @@
 import type { ToolDefinition, ToolHandler } from "./index.js";
 import { loadTokens, isTokenExpired } from "../auth/token-store.js";
-import { config } from "../config.js";
-import { deleteStaticWebApp } from "../azure/static-web-apps.js";
-import { deleteCnameRecord } from "../azure/dns.js";
-import { deployDashboard } from "../deploy/dashboard.js";
+import { deleteBlobsByPrefix } from "../azure/blob.js";
+import { loadRegistry, saveRegistry, removeApp } from "../deploy/registry.js";
+import { deploySite } from "../deploy/site-deploy.js";
 
 export const definition: ToolDefinition = {
   name: "app_delete",
-  description:
-    "Delete a deployed app. Removes the Static Web App, CNAME record, and rebuilds the dashboard.",
+  description: "Delete a deployed app. Removes files from blob storage, updates the registry, and rebuilds the site.",
   inputSchema: {
     type: "object",
     properties: {
@@ -30,13 +28,6 @@ export const handler: ToolHandler = async (args) => {
     };
   }
 
-  if (appSlug === config.dashboardSlug) {
-    return {
-      content: [{ type: "text", text: "Cannot delete the dashboard app." }],
-      isError: true,
-    };
-  }
-
   const tokens = await loadTokens();
   if (!tokens) {
     return {
@@ -53,9 +44,12 @@ export const handler: ToolHandler = async (args) => {
   }
 
   try {
-    await deleteStaticWebApp(tokens.access_token, appSlug);
-    await deleteCnameRecord(tokens.access_token, appSlug);
-    await deployDashboard(tokens.access_token);
+    const token = tokens.access_token;
+    await deleteBlobsByPrefix(token, appSlug + "/");
+    const registry = await loadRegistry(token);
+    const updated = removeApp(registry, appSlug);
+    await saveRegistry(token, updated);
+    await deploySite(token, updated);
 
     return {
       content: [

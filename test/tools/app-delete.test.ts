@@ -3,12 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  installMockFetch,
-  restoreFetch,
-  mockFetch,
-  getFetchCalls,
-} from "../helpers/mock-fetch.js";
+import { installMockFetch, restoreFetch, mockFetch, getFetchCalls } from "../helpers/mock-fetch.js";
 import { handler } from "../../src/tools/app-delete.js";
 
 let tokenDir: string;
@@ -29,58 +24,72 @@ async function setupTokenDir(tokens?: object): Promise<void> {
   }
 }
 
-function makeSwa(name: string) {
-  return {
-    id: `/subscriptions/x/resourceGroups/rg/providers/Microsoft.Web/staticSites/${name}`,
-    name,
-    location: "westeurope",
-    properties: { defaultHostname: `${name}.azurestaticapps.net` },
-    tags: {},
-  };
-}
-
 function mockDeleteFlow(slug: string) {
-  // deleteStaticWebApp — returns 204
-  mockFetch((url, init) => {
-    if (url.includes(`/staticSites/${slug}`) && init?.method === "DELETE") {
-      return { status: 204, body: null };
-    }
-    return undefined;
-  });
-
-  // deleteCnameRecord — returns 204
-  mockFetch((url, init) => {
-    if (url.includes(`/CNAME/${slug}`) && init?.method === "DELETE") {
-      return { status: 204, body: null };
-    }
-    return undefined;
-  });
-
-  // Dashboard rebuild mocks
-  // listStaticWebApps
+  // listBlobs for deleteBlobsByPrefix
   mockFetch((url) => {
-    if (url.includes("/staticSites?") || url.includes("/staticSites&")) {
-      return { status: 200, body: { value: [makeSwa("apps")] } };
+    if (url.includes("comp=list") && url.includes(encodeURIComponent(slug + "/"))) {
+      return {
+        status: 200,
+        body: `<EnumerationResults><Blobs><Blob><Name>${slug}/index.html</Name></Blob></Blobs></EnumerationResults>`,
+        headers: { "content-type": "application/xml" },
+      };
+    }
+    return undefined;
+  });
+
+  // DELETE blobs
+  mockFetch((url, init) => {
+    if (url.includes(".blob.core.windows.net") && init?.method === "DELETE") {
+      return { status: 202, body: null };
+    }
+    return undefined;
+  });
+
+  // Download registry.json (loadRegistry)
+  mockFetch((url, init) => {
+    if (url.includes("registry.json") && (!init?.method || init.method === "GET") && !url.includes("comp=list")) {
+      return {
+        status: 200,
+        body: JSON.stringify({ apps: [{ slug, name: "Test", description: "d", deployedAt: "t", deployedBy: "u" }] }),
+        headers: { "content-type": "application/octet-stream" },
+      };
+    }
+    return undefined;
+  });
+
+  // Upload registry.json (saveRegistry)
+  mockFetch((url, init) => {
+    if (url.includes("registry.json") && init?.method === "PUT") {
+      return { status: 201, body: null };
+    }
+    return undefined;
+  });
+
+  // deploySite mocks:
+  // listBlobs for assembleSite (after deletion, the slug should be gone)
+  mockFetch((url) => {
+    if (url.includes("comp=list") && !url.includes(encodeURIComponent(slug))) {
+      return {
+        status: 200,
+        body: "<EnumerationResults><Blobs></Blobs></EnumerationResults>",
+        headers: { "content-type": "application/xml" },
+      };
     }
     return undefined;
   });
 
   // getDeploymentToken
   mockFetch((url, init) => {
-    if (url.includes("/listSecrets") && init?.method === "POST") {
-      return { status: 200, body: { properties: { apiKey: "deploy-key" } } };
+    if (url.includes("listSecrets") && init?.method === "POST") {
+      return { status: 200, body: { properties: { apiKey: "test-key" } } };
     }
     return undefined;
   });
 
-  // getStaticWebApp for dashboard
+  // getStaticWebApp (hostname)
   mockFetch((url, init) => {
-    if (
-      url.includes("/staticSites/apps") &&
-      (!init?.method || init.method === "GET") &&
-      !url.includes("/listSecrets")
-    ) {
-      return { status: 200, body: makeSwa("apps") };
+    if (url.includes("staticSites/ai-apps") && (!init?.method || init.method === "GET")) {
+      return { status: 200, body: { properties: { defaultHostname: "ai-apps.azurestaticapps.net" } } };
     }
     return undefined;
   });
@@ -88,7 +97,7 @@ function mockDeleteFlow(slug: string) {
   // zipdeploy
   mockFetch((url, init) => {
     if (url.includes("zipdeploy") && init?.method === "POST") {
-      return { status: 200, body: {} };
+      return { status: 200, body: null };
     }
     return undefined;
   });
@@ -126,14 +135,7 @@ describe("app_delete", () => {
     assert.ok(result.content[0].text.includes("app_slug"));
   });
 
-  it("prevents deleting the dashboard SWA", async () => {
-    await setupTokenDir(mockTokens());
-    const result = await handler({ app_slug: "apps" });
-    assert.ok(result.isError);
-    assert.ok(result.content[0].text.toLowerCase().includes("dashboard"));
-  });
-
-  it("deletes SWA, CNAME, and rebuilds dashboard", async () => {
+  it("deletes blobs, updates registry, and redeploys site", async () => {
     await setupTokenDir(mockTokens());
     mockDeleteFlow("my-app");
 
@@ -144,32 +146,22 @@ describe("app_delete", () => {
     assert.equal(parsed.status, "ok");
     assert.ok(parsed.message.includes("my-app"));
 
-    // Verify SWA was deleted
+    // Verify blob deletion was called
     const calls = getFetchCalls();
-    const deleteSwaCalls = calls.filter(
-      (c) => c.url.includes("/staticSites/my-app") && c.init?.method === "DELETE",
-    );
-    assert.equal(deleteSwaCalls.length, 1);
+    const deleteCalls = calls.filter((c) => c.init?.method === "DELETE");
+    assert.ok(deleteCalls.length > 0, "Should have DELETE calls for blob cleanup");
 
-    // Verify CNAME was deleted
-    const deleteCnameCalls = calls.filter(
-      (c) => c.url.includes("/CNAME/my-app") && c.init?.method === "DELETE",
-    );
-    assert.equal(deleteCnameCalls.length, 1);
-
-    // Verify dashboard was rebuilt (zipdeploy called)
+    // Verify zipdeploy was called (site redeployed)
     const zipCalls = calls.filter((c) => c.url.includes("zipdeploy"));
-    assert.equal(zipCalls.length, 1);
+    assert.ok(zipCalls.length > 0, "Should redeploy site after delete");
   });
 
-  it("propagates Azure API errors on SWA delete", async () => {
+  it("propagates errors from blob operations", async () => {
     await setupTokenDir(mockTokens());
-    mockFetch((url, init) => {
-      if (url.includes("/staticSites/my-app") && init?.method === "DELETE") {
-        return {
-          status: 404,
-          body: { error: { code: "ResourceNotFound", message: "Not found" } },
-        };
+    // Mock listBlobs to fail
+    mockFetch((url) => {
+      if (url.includes("comp=list")) {
+        return { status: 403, body: "Forbidden", headers: { "content-type": "text/plain" } };
       }
       return undefined;
     });
