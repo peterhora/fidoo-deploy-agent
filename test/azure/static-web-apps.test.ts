@@ -13,7 +13,6 @@ import {
   listStaticWebApps,
   getDeploymentToken,
   updateTags,
-  configureAuth,
   deploySwaDir,
 } from "../../src/azure/static-web-apps.js";
 
@@ -199,34 +198,6 @@ describe("updateTags", () => {
     const calls = getFetchCalls();
     const body = JSON.parse(calls[0].init?.body as string);
     assert.deepEqual(body.tags, { appName: "New Name", appDescription: "New desc" });
-  });
-});
-
-describe("configureAuth", () => {
-  beforeEach(() => installMockFetch());
-  afterEach(() => restoreFetch());
-
-  it("PUTs auth settings for Entra ID", async () => {
-    mockFetch((url, init) => {
-      if (url.includes("/config/authsettingsV2") && init?.method === "PUT") {
-        return { status: 200, body: { properties: {} } };
-      }
-      return undefined;
-    });
-
-    await configureAuth(TOKEN, "my-app");
-
-    const calls = getFetchCalls();
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].init?.method, "PUT");
-    assert.ok(calls[0].url.includes("/staticSites/my-app/config/authsettingsV2"));
-
-    const body = JSON.parse(calls[0].init?.body as string);
-    assert.ok(body.properties.identityProviders.azureActiveDirectory);
-    assert.equal(
-      body.properties.identityProviders.azureActiveDirectory.registration.clientIdSettingName,
-      "AZURE_CLIENT_ID",
-    );
   });
 });
 

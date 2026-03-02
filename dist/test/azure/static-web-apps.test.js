@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { installMockFetch, restoreFetch, mockFetch, getFetchCalls, } from "../helpers/mock-fetch.js";
-import { createStaticWebApp, getStaticWebApp, deleteStaticWebApp, listStaticWebApps, getDeploymentToken, updateTags, configureAuth, deploySwaDir, } from "../../src/azure/static-web-apps.js";
+import { createStaticWebApp, getStaticWebApp, deleteStaticWebApp, listStaticWebApps, getDeploymentToken, updateTags, deploySwaDir, } from "../../src/azure/static-web-apps.js";
 const TOKEN = "test-access-token";
 const RESOURCE_ID = "/subscriptions/PLACEHOLDER_SUBSCRIPTION_ID/resourceGroups/rg-published-apps/providers/Microsoft.Web/staticSites/my-app";
 describe("createStaticWebApp", () => {
@@ -150,26 +150,6 @@ describe("updateTags", () => {
         const calls = getFetchCalls();
         const body = JSON.parse(calls[0].init?.body);
         assert.deepEqual(body.tags, { appName: "New Name", appDescription: "New desc" });
-    });
-});
-describe("configureAuth", () => {
-    beforeEach(() => installMockFetch());
-    afterEach(() => restoreFetch());
-    it("PUTs auth settings for Entra ID", async () => {
-        mockFetch((url, init) => {
-            if (url.includes("/config/authsettingsV2") && init?.method === "PUT") {
-                return { status: 200, body: { properties: {} } };
-            }
-            return undefined;
-        });
-        await configureAuth(TOKEN, "my-app");
-        const calls = getFetchCalls();
-        assert.equal(calls.length, 1);
-        assert.equal(calls[0].init?.method, "PUT");
-        assert.ok(calls[0].url.includes("/staticSites/my-app/config/authsettingsV2"));
-        const body = JSON.parse(calls[0].init?.body);
-        assert.ok(body.properties.identityProviders.azureActiveDirectory);
-        assert.equal(body.properties.identityProviders.azureActiveDirectory.registration.clientIdSettingName, "AZURE_CLIENT_ID");
     });
 });
 describe("deploySwaDir", () => {

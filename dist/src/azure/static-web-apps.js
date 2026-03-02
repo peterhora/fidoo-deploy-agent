@@ -69,28 +69,4 @@ export async function deploySwaDir(armToken, slug, outputDir) {
     const apiKey = await getDeploymentToken(armToken, slug);
     await deploySwaContent(apiKey, outputDir);
 }
-export async function configureAuth(token, slug) {
-    await azureFetch(`${swaPath(slug)}/config/authsettingsV2`, {
-        token,
-        method: "PUT",
-        apiVersion: config.swaApiVersion,
-        body: {
-            properties: {
-                identityProviders: {
-                    azureActiveDirectory: {
-                        registration: {
-                            clientIdSettingName: "PORTAL_CLIENT_ID",
-                            clientSecretSettingName: "PORTAL_CLIENT_SECRET",
-                            openIdIssuer: `https://login.microsoftonline.com/${config.tenantId}/v2.0`,
-                        },
-                        isAutoProvisioned: false,
-                    },
-                },
-                globalValidation: {
-                    unauthenticatedClientAction: "RedirectToLoginPage",
-                },
-            },
-        },
-    });
-}
 //# sourceMappingURL=static-web-apps.js.map

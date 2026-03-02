@@ -287,32 +287,14 @@ else
 fi
 
 # ── 5c. SWA Authentication Configuration ─────────────────────────────────────
-# Replaces the global Microsoft SWA enterprise app (d414ee2d) with our custom
-# single-tenant "Deploy Portal" app. B2B guests from fidoo.com can now authenticate
-# without hitting the "pending approval" screen.
-# This is idempotent — safe to re-run.
-
-info "Configuring SWA authsettingsV2..."
-az rest --method put \
-  --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Web/staticSites/${SWA_NAME}/config/authsettingsV2?api-version=2022-09-01" \
-  --body "{
-    \"properties\": {
-      \"identityProviders\": {
-        \"azureActiveDirectory\": {
-          \"registration\": {
-            \"clientIdSettingName\": \"PORTAL_CLIENT_ID\",
-            \"clientSecretSettingName\": \"PORTAL_CLIENT_SECRET\",
-            \"openIdIssuer\": \"https://login.microsoftonline.com/${TENANT_ID}/v2.0\"
-          },
-          \"isAutoProvisioned\": false
-        }
-      },
-      \"globalValidation\": {
-        \"unauthenticatedClientAction\": \"RedirectToLoginPage\"
-      }
-    }
-  }"
-ok "SWA authsettingsV2 configured (Deploy Portal app, single-tenant FidooFXtest)"
+# NOTE: Azure Static Web Apps does NOT support ARM authsettingsV2 (that endpoint
+# is App Service only). SWA auth is configured via the "auth" block in
+# staticwebapp.config.json, which is generated and deployed by the plugin's
+# assemble.ts on every site deploy. The config references PORTAL_CLIENT_ID and
+# PORTAL_CLIENT_SECRET app settings (set in 5b above) to use the custom
+# "Deploy Portal" AAD app instead of the global Microsoft SWA enterprise app.
+# No ARM action needed here — running "app_deploy" will apply the auth config.
+ok "SWA auth config is embedded in staticwebapp.config.json (deployed by the plugin)"
 
 # ── 6. Security Group & RBAC ───────────────────────────────────────────────
 
