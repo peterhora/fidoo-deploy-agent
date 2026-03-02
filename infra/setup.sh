@@ -155,14 +155,15 @@ else
 fi
 
 # Redirect URIs required by SWA auth service (identity.2.azurestaticapps.net)
-info "Configuring redirect URIs for '$DEPLOY_PORTAL_APP_NAME'..."
+info "Configuring redirect URIs and ID token issuance for '$DEPLOY_PORTAL_APP_NAME'..."
 az ad app update \
   --id "$DEPLOY_PORTAL_APP_ID" \
   --web-redirect-uris \
     "https://${APP_DOMAIN}/.auth/login/aad/callback" \
     "https://delightful-flower-02f85aa03.2.azurestaticapps.net/.auth/login/aad/callback" \
+  --enable-id-token-issuance true \
   2>/dev/null || true
-ok "Redirect URIs configured"
+ok "Redirect URIs and ID token issuance configured"
 
 # Create service principal (required for token issuance)
 info "Checking service principal for '$DEPLOY_PORTAL_APP_NAME'..."
