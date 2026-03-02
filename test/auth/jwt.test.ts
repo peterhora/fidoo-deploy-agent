@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { extractUpn } from "../../src/auth/jwt.js";
+import { extractUpn, extractDisplayName } from "../../src/auth/jwt.js";
 
 function makeJwt(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
@@ -48,5 +48,40 @@ describe("extractUpn", () => {
     // Payload with a short email — may produce base64 without padding
     const token = makeJwt({ upn: "a@b.c" });
     assert.equal(extractUpn(token), "a@b.c");
+  });
+});
+
+describe("extractDisplayName", () => {
+  it("returns name claim directly when present", () => {
+    const token = makeJwt({ name: "Alice Smith", upn: "alice@fidoo.cloud" });
+    assert.equal(extractDisplayName(token), "Alice Smith");
+  });
+
+  it("parses B2B guest EXT# UPN into First Last", () => {
+    const token = makeJwt({
+      preferred_username: "jan.novak_fidoo.com#EXT#@fidootenant.onmicrosoft.com",
+    });
+    assert.equal(extractDisplayName(token), "Jan Novak");
+  });
+
+  it("parses EXT# from upn claim when preferred_username absent", () => {
+    const token = makeJwt({
+      upn: "petra.kolarova_fidoo.com#EXT#@fidootenant.onmicrosoft.com",
+    });
+    assert.equal(extractDisplayName(token), "Petra Kolarova");
+  });
+
+  it("falls back to preferred_username as-is when no name and no EXT# pattern", () => {
+    const token = makeJwt({ preferred_username: "bob@fidoo.cloud" });
+    assert.equal(extractDisplayName(token), "bob@fidoo.cloud");
+  });
+
+  it("returns undefined when no usable claims exist", () => {
+    const token = makeJwt({ sub: "abc123" });
+    assert.equal(extractDisplayName(token), undefined);
+  });
+
+  it("returns undefined for malformed token", () => {
+    assert.equal(extractDisplayName("not-a-jwt"), undefined);
   });
 });

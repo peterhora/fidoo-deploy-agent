@@ -1,7 +1,7 @@
 import { stat, readFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { loadTokens, isTokenExpired } from "../auth/token-store.js";
-import { extractUpn } from "../auth/jwt.js";
+import { extractDisplayName } from "../auth/jwt.js";
 import { config } from "../config.js";
 import { readDeployConfig, writeDeployConfig, generateSlug } from "../deploy/deploy-json.js";
 import { collectFiles } from "../deploy/deny-list.js";
@@ -52,7 +52,7 @@ async function firstDeploy(armToken, storageToken, folder, appName, appDescripti
         name: appName,
         description: appDescription,
         deployedAt: new Date().toISOString(),
-        deployedBy: extractUpn(armToken) || "unknown",
+        deployedBy: extractDisplayName(armToken) || "unknown",
     };
     registry = upsertApp(registry, entry);
     await saveRegistry(storageToken, registry);
@@ -77,7 +77,7 @@ async function redeploy(armToken, storageToken, folder, existingConfig) {
         name: existing?.name || existingConfig.appName,
         description: existing?.description || existingConfig.appDescription,
         deployedAt: new Date().toISOString(),
-        deployedBy: extractUpn(armToken) || "unknown",
+        deployedBy: extractDisplayName(armToken) || "unknown",
     };
     registry = upsertApp(registry, entry);
     await saveRegistry(storageToken, registry);
