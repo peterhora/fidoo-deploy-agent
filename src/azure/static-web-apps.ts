@@ -129,7 +129,8 @@ export async function configureAuth(
         identityProviders: {
           azureActiveDirectory: {
             registration: {
-              clientIdSettingName: "AZURE_CLIENT_ID",
+              clientIdSettingName: "PORTAL_CLIENT_ID",
+              clientSecretSettingName: "PORTAL_CLIENT_SECRET",
               openIdIssuer: `https://login.microsoftonline.com/${config.tenantId}/v2.0`,
             },
             isAutoProvisioned: false,

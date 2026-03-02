@@ -22,6 +22,7 @@ set -euo pipefail
 LOCATION="westeurope"
 RESOURCE_GROUP="rg-published-apps"
 DEPLOY_PLUGIN_APP_NAME="Deploy Plugin"
+DEPLOY_PORTAL_APP_NAME="Deploy Portal"
 SWA_SLUG="ai-apps"                        # Single SWA resource name
 SWA_NAME="swa-${SWA_SLUG}"
 STORAGE_ACCOUNT="stpublishedapps"          # Must be globally unique, 3-24 lowercase alphanumeric
@@ -133,6 +134,68 @@ else
   ok "app_publisher role created"
 fi
 
+# ── 2b. App Registration: Deploy Portal ──────────────────────────────────────
+# Single-tenant web app used by SWA authsettingsV2 for portal visitors.
+# Separate from Deploy Plugin (used for MCP agent OAuth).
+
+info "Checking app registration '$DEPLOY_PORTAL_APP_NAME'..."
+DEPLOY_PORTAL_APP_ID=$(az ad app list \
+  --display-name "$DEPLOY_PORTAL_APP_NAME" \
+  --query "[0].appId" -o tsv 2>/dev/null || true)
+
+if [[ -n "$DEPLOY_PORTAL_APP_ID" && "$DEPLOY_PORTAL_APP_ID" != "None" ]]; then
+  ok "App registration '$DEPLOY_PORTAL_APP_NAME' already exists (appId: $DEPLOY_PORTAL_APP_ID)"
+else
+  info "Creating app registration '$DEPLOY_PORTAL_APP_NAME'..."
+  DEPLOY_PORTAL_APP_ID=$(az ad app create \
+    --display-name "$DEPLOY_PORTAL_APP_NAME" \
+    --sign-in-audience "AzureADMyOrg" \
+    --query appId -o tsv)
+  ok "App registration '$DEPLOY_PORTAL_APP_NAME' created (appId: $DEPLOY_PORTAL_APP_ID)"
+fi
+
+# Redirect URIs required by SWA auth service (identity.2.azurestaticapps.net)
+info "Configuring redirect URIs for '$DEPLOY_PORTAL_APP_NAME'..."
+az ad app update \
+  --id "$DEPLOY_PORTAL_APP_ID" \
+  --web-redirect-uris \
+    "https://${APP_DOMAIN}/.auth/login/aad/callback" \
+    "https://delightful-flower-02f85aa03.2.azurestaticapps.net/.auth/login/aad/callback" \
+  2>/dev/null || true
+ok "Redirect URIs configured"
+
+# Create service principal (required for token issuance)
+info "Checking service principal for '$DEPLOY_PORTAL_APP_NAME'..."
+DEPLOY_PORTAL_SP_ID=$(az ad sp list \
+  --filter "appId eq '$DEPLOY_PORTAL_APP_ID'" \
+  --query "[0].id" -o tsv 2>/dev/null || true)
+if [[ -z "$DEPLOY_PORTAL_SP_ID" || "$DEPLOY_PORTAL_SP_ID" == "None" ]]; then
+  DEPLOY_PORTAL_SP_ID=$(az ad sp create --id "$DEPLOY_PORTAL_APP_ID" --query id -o tsv)
+  ok "Service principal created (objectId: $DEPLOY_PORTAL_SP_ID)"
+else
+  ok "Service principal already exists (objectId: $DEPLOY_PORTAL_SP_ID)"
+fi
+
+# Client secret — skip if one already exists (rotate manually when needed)
+info "Checking client secret for '$DEPLOY_PORTAL_APP_NAME'..."
+EXISTING_SECRET_COUNT=$(az ad app credential list \
+  --id "$DEPLOY_PORTAL_APP_ID" \
+  --query "length(@)" -o tsv 2>/dev/null || echo "0")
+
+if [[ "${EXISTING_SECRET_COUNT}" -gt "0" ]]; then
+  warn "Client secret already exists — skipping creation."
+  warn "To rotate: delete via portal/CLI and re-run setup.sh, then re-run section 5b."
+  DEPLOY_PORTAL_CLIENT_SECRET="ROTATE_MANUALLY"
+else
+  DEPLOY_PORTAL_CLIENT_SECRET=$(az ad app credential reset \
+    --id "$DEPLOY_PORTAL_APP_ID" \
+    --display-name "swa-auth" \
+    --years 2 \
+    --query password -o tsv)
+  ok "Client secret created (shown once below — store securely)"
+  echo "  PORTAL_CLIENT_SECRET=${DEPLOY_PORTAL_CLIENT_SECRET}"
+fi
+
 # ── 3. Storage Account ───────────────────────────────────────────────────────
 
 info "Checking storage account '$STORAGE_ACCOUNT'..."
@@ -203,6 +266,54 @@ else
   ok "Service principal already exists (objectId: $DEPLOY_PLUGIN_SP_ID)"
 fi
 
+# ── 5b. SWA Application Settings ─────────────────────────────────────────────
+# PORTAL_CLIENT_ID / PORTAL_CLIENT_SECRET are read by authsettingsV2 at runtime.
+# Never embedded in deployed content.
+
+info "Setting SWA application settings..."
+if [[ "$DEPLOY_PORTAL_CLIENT_SECRET" == "ROTATE_MANUALLY" ]]; then
+  warn "Skipping app settings — secret not available. Set manually:"
+  warn "  az staticwebapp appsettings set --name $SWA_NAME --resource-group $RESOURCE_GROUP \\"
+  warn "    --setting-names PORTAL_CLIENT_ID=$DEPLOY_PORTAL_APP_ID PORTAL_CLIENT_SECRET=<secret>"
+else
+  az staticwebapp appsettings set \
+    --name "$SWA_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --setting-names \
+      "PORTAL_CLIENT_ID=${DEPLOY_PORTAL_APP_ID}" \
+      "PORTAL_CLIENT_SECRET=${DEPLOY_PORTAL_CLIENT_SECRET}" \
+    --output none
+  ok "SWA app settings configured: PORTAL_CLIENT_ID, PORTAL_CLIENT_SECRET"
+fi
+
+# ── 5c. SWA Authentication Configuration ─────────────────────────────────────
+# Replaces the global Microsoft SWA enterprise app (d414ee2d) with our custom
+# single-tenant "Deploy Portal" app. B2B guests from fidoo.com can now authenticate
+# without hitting the "pending approval" screen.
+# This is idempotent — safe to re-run.
+
+info "Configuring SWA authsettingsV2..."
+az rest --method put \
+  --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Web/staticSites/${SWA_NAME}/config/authsettingsV2?api-version=2022-09-01" \
+  --body "{
+    \"properties\": {
+      \"identityProviders\": {
+        \"azureActiveDirectory\": {
+          \"registration\": {
+            \"clientIdSettingName\": \"PORTAL_CLIENT_ID\",
+            \"clientSecretSettingName\": \"PORTAL_CLIENT_SECRET\",
+            \"openIdIssuer\": \"https://login.microsoftonline.com/${TENANT_ID}/v2.0\"
+          },
+          \"isAutoProvisioned\": false
+        }
+      },
+      \"globalValidation\": {
+        \"unauthenticatedClientAction\": \"RedirectToLoginPage\"
+      }
+    }
+  }"
+ok "SWA authsettingsV2 configured (Deploy Portal app, single-tenant FidooFXtest)"
+
 # ── 6. Security Group & RBAC ───────────────────────────────────────────────
 
 GROUP_NAME="fi-aiapps-pub"
@@ -265,6 +376,7 @@ DEPLOY_AGENT_STORAGE_ACCOUNT=$STORAGE_ACCOUNT
 DEPLOY_AGENT_CONTAINER_NAME=$CONTAINER_NAME
 DEPLOY_AGENT_APP_DOMAIN=$APP_DOMAIN
 DEPLOY_AGENT_SWA_SLUG=$SWA_SLUG
+DEPLOY_PORTAL_CLIENT_ID=$DEPLOY_PORTAL_APP_ID
 EOF
 
 ok "Config written to $ENV_FILE"
@@ -286,6 +398,12 @@ echo "    DEPLOY_AGENT_STORAGE_ACCOUNT=$STORAGE_ACCOUNT"
 echo "    DEPLOY_AGENT_CONTAINER_NAME=$CONTAINER_NAME"
 echo "    DEPLOY_AGENT_APP_DOMAIN=$APP_DOMAIN"
 echo "    DEPLOY_AGENT_SWA_SLUG=$SWA_SLUG"
+echo "    DEPLOY_PORTAL_CLIENT_ID=$DEPLOY_PORTAL_APP_ID"
+echo ""
+echo "  Portal auth (PORTAL_CLIENT_SECRET stored as SWA app setting — NOT in .env):"
+echo "    Store PORTAL_CLIENT_SECRET in a vault. Rotate via:"
+echo "    az ad app credential reset --id $DEPLOY_PORTAL_APP_ID --display-name swa-auth --years 2"
+echo "    Then re-run setup.sh to update the SWA app setting."
 echo ""
 echo "  DNS setup (manual — must be done by an admin):"
 echo "    Create a CNAME record pointing '$APP_DOMAIN' to the default"

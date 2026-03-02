@@ -26,7 +26,7 @@ The group has the required Azure RBAC roles (Storage Blob Data Contributor on st
 
 ### For viewers (browse apps)
 
-Any tenant member can view deployed apps — just log in with Entra ID when prompted. No group membership needed.
+Any Entra ID user — including B2B guests (`user@fidoo.com` appearing as `#EXT#` in FidooFXtest) — can view deployed apps. Log in with Entra ID when prompted. No group membership needed.
 
 ### For admins (one-time setup)
 
@@ -37,9 +37,27 @@ az login
 ./infra/setup.sh
 ```
 
-The script is idempotent and creates: resource group `rg-published-apps`, app registration "Deploy Plugin" (with API permissions for Azure Service Management and Azure Storage), storage account `stpublishedapps` with `app-content` container, Static Web App `swa-ai-apps`, RBAC assignments, and grants admin consent for all API permissions.
+The script is idempotent and creates/configures:
 
-**Note:** The admin consent step (`az ad app permission admin-consent`) requires Global Administrator or Privileged Role Administrator. If it fails, grant consent manually in the Azure Portal: **Entra ID** > **App registrations** > **Deploy Plugin** > **API permissions** > **Grant admin consent**. Both Azure Service Management and Azure Storage `user_impersonation` permissions must be consented.
+| Step | What it does |
+|------|-------------|
+| Resource group | `rg-published-apps` in `westeurope` |
+| Deploy Plugin app | App registration for MCP agent OAuth (device code flow); API permissions for Azure Service Management and Azure Storage; `app_publisher` role |
+| Deploy Portal app | Single-tenant web app used by SWA for portal visitor authentication; redirect URIs configured; client secret generated (printed once — see below) |
+| Storage account | `stpublishedapps` with `app-content` blob container |
+| Static Web App | `swa-ai-apps` (Free SKU) |
+| SWA app settings | `PORTAL_CLIENT_ID` and `PORTAL_CLIENT_SECRET` set on the SWA |
+| SWA authsettingsV2 | Configures the Deploy Portal app as the AAD identity provider; unauthenticated requests redirected to login |
+| Security group & RBAC | `fi-aiapps-pub` group with Storage Blob Data Contributor on storage and Contributor on the SWA |
+
+**`PORTAL_CLIENT_SECRET`** is printed once during setup. Store it in a vault immediately. It is saved automatically as a SWA app setting by the script, but is not written to `infra/.env`. To rotate it:
+
+```bash
+az ad app credential reset --id <DEPLOY_PORTAL_APP_ID> --display-name swa-auth --years 2
+# Then re-run setup.sh to push the new secret to SWA app settings
+```
+
+**Admin consent:** The `az ad app permission admin-consent` step requires Global Administrator or Privileged Role Administrator. If it fails, grant consent manually in the Azure Portal: **Entra ID** > **App registrations** > **Deploy Plugin** > **API permissions** > **Grant admin consent**. Both Azure Service Management and Azure Storage `user_impersonation` permissions must be consented.
 
 DNS: CNAME `ai-apps.env.fidoo.cloud` pointing to the SWA default hostname, then add the custom domain to the SWA.
 
