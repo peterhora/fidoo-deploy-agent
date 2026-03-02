@@ -20,4 +20,3 @@ export declare function listStaticWebApps(token: string): Promise<StaticWebAppRe
 export declare function getDeploymentToken(token: string, slug: string): Promise<string>;
 export declare function updateTags(token: string, slug: string, tags: Record<string, string>): Promise<StaticWebAppResource>;
 export declare function deploySwaDir(armToken: string, slug: string, outputDir: string): Promise<void>;
-export declare function configureAuth(token: string, slug: string): Promise<void>;
