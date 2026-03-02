@@ -8,8 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run build          # Compile TypeScript to dist/
 npm run dev            # Watch mode (tsc --watch)
 npm test               # Run all tests (uses --test-force-exit, may skip slow tests)
-node --test dist/test/*.test.js dist/test/**/*.test.js   # Full test suite (no force-exit, preferred for verification)
+node --test dist/test/*.test.js dist/test/**/*.test.js   # Full test suite including integration (no force-exit, preferred for verification)
 node --test dist/test/tools/app-list.test.js             # Run a single test file
+node --test dist/test/integration/*.test.js              # Integration tests only (end-to-end MCP + deploy flow)
 ```
 
 Always `npm run build` before running tests — tests run from `dist/`.
@@ -22,11 +23,15 @@ MCP server plugin for Claude Code that deploys static HTML/JS apps to a single A
 
 **Tool pattern:** Each tool in `src/tools/` exports `definition: ToolDefinition` (name, description, inputSchema) and `handler: ToolHandler` (async function returning `{ content: [{type: "text", text: string}], isError?: boolean }`). All 8 tools are registered in `src/tools/index.ts`: `auth_login`, `auth_poll`, `auth_status`, `app_deploy`, `app_delete`, `app_list`, `app_info`, `app_update_info`.
 
-**Auth flow:** OAuth2 device code flow via `src/auth/device-code.ts`. Two scoped tokens: ARM (for SWA management) and storage (for blob operations), both obtained from a single refresh token. Tokens cached to `~/.deploy-agent/tokens.json` (mode 0600). Override dir with `DEPLOY_AGENT_TOKEN_DIR` env var (used in tests).
+**Auth flow:** OAuth2 device code flow via `src/auth/device-code.ts`. Two scoped tokens from a single refresh token: `access_token` (ARM scope, for SWA management) and `storage_access_token` (Storage scope, for blob operations). Both tracked independently with `expires_at` / `storage_expires_at`. Cached to `~/.deploy-agent/tokens.json` (mode 0600). `src/auth/jwt.ts` decodes the ARM token without verification to extract display name for audit tagging. Override dir with `DEPLOY_AGENT_TOKEN_DIR` env var (used in tests).
 
 **Azure layer:** `src/azure/rest-client.ts` wraps `fetch` with ARM base URL, Bearer header, and api-version. Throws `AzureError` with `.status` and `.code` on non-2xx. `src/azure/static-web-apps.ts` manages SWA deployment. `src/azure/blob.ts` handles blob upload/download/delete and registry operations against Azure Blob Storage.
 
-**Deploy flow:** `collectFiles` (deny-list) → blob upload (`src/azure/blob.ts`) → registry update (`src/deploy/registry.ts`) → `assembleSite` (`src/deploy/assemble.ts`: downloads all apps from blob, generates dashboard HTML) → deploy assembled dir to SWA via StaticSitesClient binary (`src/deploy/swa-client.ts` — auto-downloaded and cached in `~/.swa/deploy/`).
+**Deploy flow:** `collectFiles` (deny-list: `.git/`, `node_modules/`, `.deploy.json`, `.env*`, certs, SSH keys) → blob upload (`src/azure/blob.ts`) → registry update (`src/deploy/registry.ts`) → `assembleSite` (`src/deploy/assemble.ts`: downloads all apps from blob, generates dashboard HTML + `staticwebapp.config.json` + `/login` redirect page) → deploy assembled dir to SWA via StaticSitesClient binary (`src/deploy/swa-client.ts` — auto-downloaded and cached in `~/.swa/deploy/`).
+
+**First deploy vs re-deploy:** `app_deploy` checks for `.deploy.json` in the target folder. If absent, it's a first deploy (requires `app_name` + `app_description`, generates a slug, writes `.deploy.json`). If present, it re-deploys using the stored slug. `.deploy.json` contains `{ appSlug, appName, appDescription, resourceId }` and should be committed to the app's repo.
+
+**SWA end-user auth:** The assembled site's `staticwebapp.config.json` enforces Entra ID login for all routes using a separate "Deploy Portal" AAD app registration (`PORTAL_CLIENT_ID` / `PORTAL_CLIENT_SECRET` SWA app settings — set by `setup.sh`, not the deploy agent). The `/login` page (`src/deploy/login.ts`) captures the pre-auth referrer URL for post-login redirect back to the originally requested path.
 
 **Plugin manifest:** `.claude-plugin/plugin.json` registers this as a Claude Code MCP plugin. Skills live in `skills/`.
 
@@ -46,6 +51,7 @@ MCP server plugin for Claude Code that deploys static HTML/JS apps to a single A
 | `DEPLOY_AGENT_CONTAINER_NAME` | Blob container name | `app-content` |
 | `DEPLOY_AGENT_APP_DOMAIN` | Custom domain for apps | `ai-apps.env.fidoo.cloud` |
 | `DEPLOY_AGENT_SWA_SLUG` | Single SWA resource name | `swa-ai-apps` |
+| `DEPLOY_AGENT_LOCATION` | Azure region for SWA | `westeurope` |
 | `DEPLOY_AGENT_TOKEN_DIR` | Override token storage dir | `~/.deploy-agent` |
 
 ## Key Conventions
