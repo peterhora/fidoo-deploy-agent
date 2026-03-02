@@ -2,6 +2,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { listBlobs, downloadBlob } from "../azure/blob.js";
 import { generateDashboardHtml } from "./dashboard.js";
+import { generateLoginHtml } from "./login.js";
 import { config } from "../config.js";
 export async function assembleSite(token, registry, outDir) {
     // 1. Write dashboard index.html at root
@@ -26,14 +27,21 @@ export async function assembleSite(token, registry, outDir) {
         },
         routes: [
             { route: "/.auth/*", allowedRoles: ["anonymous"] },
+            { route: "/login", allowedRoles: ["anonymous"] },
+            { route: "/login/", allowedRoles: ["anonymous"] },
+            { route: "/login/*", allowedRoles: ["anonymous"] },
             { route: "/*", allowedRoles: ["authenticated"] },
         ],
         responseOverrides: {
-            "401": { redirect: "/.auth/login/aad", statusCode: 302 },
+            "401": { redirect: "/login/", statusCode: 302 },
         },
     };
     await writeFile(join(outDir, "staticwebapp.config.json"), JSON.stringify(swaConfig, null, 2), "utf-8");
-    // 4. Download all app files from blob into subdirectories
+    // 4. Write login/index.html — intermediate page for preserving post-login redirect
+    const loginHtml = generateLoginHtml();
+    await mkdir(join(outDir, "login"), { recursive: true });
+    await writeFile(join(outDir, "login", "index.html"), loginHtml, "utf-8");
+    // 5. Download all app files from blob into subdirectories
     const allBlobs = await listBlobs(token);
     const appBlobs = allBlobs.filter((name) => name !== "registry.json");
     await Promise.all(appBlobs.map(async (blobName) => {
