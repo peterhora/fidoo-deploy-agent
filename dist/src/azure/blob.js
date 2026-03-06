@@ -151,4 +151,27 @@ export async function generateBlobSasUrl(token, blobPath) {
     });
     return `${blobUrl(blobPath)}?${params.toString()}`;
 }
+export async function createBlobContainer(token, containerName) {
+    const resp = await fetch(`https://${config.storageAccount}.blob.core.windows.net/${containerName}?restype=container`, {
+        method: "PUT",
+        headers: {
+            ...authHeaders(token),
+        },
+    });
+    // 201 = created, 409 = already exists — both are fine
+    if (!resp.ok && resp.status !== 409) {
+        throw new Error(`Failed to create blob container '${containerName}': ${resp.status} ${await resp.text()}`);
+    }
+}
+export async function deleteBlobContainer(token, containerName) {
+    const resp = await fetch(`https://${config.storageAccount}.blob.core.windows.net/${containerName}?restype=container`, {
+        method: "DELETE",
+        headers: {
+            ...authHeaders(token),
+        },
+    });
+    if (!resp.ok && resp.status !== 404) {
+        throw new Error(`Failed to delete blob container '${containerName}': ${resp.status} ${await resp.text()}`);
+    }
+}
 //# sourceMappingURL=blob.js.map

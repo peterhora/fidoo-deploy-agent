@@ -4,3 +4,5 @@ export declare function deleteBlob(token: string, blobPath: string): Promise<voi
 export declare function listBlobs(token: string, prefix?: string): Promise<string[]>;
 export declare function deleteBlobsByPrefix(token: string, prefix: string): Promise<void>;
 export declare function generateBlobSasUrl(token: string, blobPath: string): Promise<string>;
+export declare function createBlobContainer(token: string, containerName: string): Promise<void>;
+export declare function deleteBlobContainer(token: string, containerName: string): Promise<void>;

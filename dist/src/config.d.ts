@@ -7,6 +7,12 @@ export declare function buildConfig(): {
     containerName: string;
     appDomain: string;
     swaSlug: string;
+    acrName: string;
+    acrLoginServer: string;
+    containerEnvName: string;
+    containerDomain: string;
+    pullIdentityId: string;
+    defaultPort: number;
     armScope: string;
     storageScope: string;
     armBaseUrl: string;
@@ -26,6 +32,12 @@ export declare const config: {
     containerName: string;
     appDomain: string;
     swaSlug: string;
+    acrName: string;
+    acrLoginServer: string;
+    containerEnvName: string;
+    containerDomain: string;
+    pullIdentityId: string;
+    defaultPort: number;
     armScope: string;
     storageScope: string;
     armBaseUrl: string;
