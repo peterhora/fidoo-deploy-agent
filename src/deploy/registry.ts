@@ -6,6 +6,10 @@ export interface AppEntry {
   description: string;
   deployedAt: string;
   deployedBy: string;
+  type?:              "static" | "container";  // defaults to "static" if absent
+  containerAppId?:    string;                  // container only
+  imageRepository?:   string;                 // container only
+  persistentStorage?: boolean;                // container only
 }
 
 export interface Registry {
