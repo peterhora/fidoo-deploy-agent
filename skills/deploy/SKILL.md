@@ -60,6 +60,28 @@ Check if the target folder contains a `.deploy.json` file.
 3. The tool handles everything: slug generation, collision check, SWA creation, ZIP upload, DNS, auth config, `.deploy.json`, and dashboard rebuild
 4. Report the URL: `https://{slug}.env.fidoo.cloud`
 
+## App Type Detection
+
+Before calling any deploy tool, analyze the project folder to determine the correct deploy path:
+
+**Static app** — no Dockerfile, has `index.html` at root:
+→ call `app_deploy`
+
+**Container app without persistence** — has `Dockerfile`, no SQLite signals:
+→ call `container_deploy` with `persistent_storage: false`
+
+**Fullstack container app** — has `Dockerfile` AND any of these SQLite signals:
+- `require("node:sqlite")` or `from "node:sqlite"` in any JS/TS file
+- `better-sqlite3`, `sqlite3`, `sqlite`, `typeorm`, `prisma`, or `sequelize` in `package.json`
+- `SQLAlchemy`, `peewee`, `tortoise-orm`, or `databases` in `requirements.txt`
+- Any `.db` or `.sqlite` file at the project root
+→ call `container_deploy` with `persistent_storage: true`
+
+Always confirm with the user before deploying:
+- Static: "I'll deploy this as a **static app**. Correct?"
+- Container: "I'll deploy this as a **container app**. Correct?"
+- Fullstack: "I'll deploy this as a **fullstack container with persistent storage** — SQLite detected. Correct?"
+
 ### Re-deploy
 
 1. Call `app_deploy` with just `folder` (the absolute path)
