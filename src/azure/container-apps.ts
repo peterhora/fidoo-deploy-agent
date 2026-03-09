@@ -26,10 +26,15 @@ export async function createOrUpdateContainerApp(
   const url = `${config.armBaseUrl}${containerAppPath}?api-version=${CA_API}`;
   const envId = `/subscriptions/${config.subscriptionId}/resourceGroups/${config.resourceGroup}/providers/Microsoft.App/managedEnvironments/${config.containerEnvName}`;
 
+  const connectionString = `DefaultEndpointsProtocol=https;AccountName=${opts.storageAccountName};AccountKey=${opts.storageAccountKey};EndpointSuffix=core.windows.net`;
+
   const secrets: { name: string; value: string }[] = [
     { name: "acr-admin-password", value: config.acrAdminPassword },
     ...(opts.persistentStorage
-      ? [{ name: "azure-storage-account-key", value: opts.storageAccountKey }]
+      ? [
+          { name: "azure-storage-account-key", value: opts.storageAccountKey },
+          { name: "azure-storage-connection-string", value: connectionString },
+        ]
       : []),
   ];
 
@@ -39,6 +44,7 @@ export async function createOrUpdateContainerApp(
         { name: "AZURE_STORAGE_ACCOUNT_NAME", value: opts.storageAccountName },
         { name: "AZURE_STORAGE_CONTAINER", value: opts.storageContainer },
         { name: "AZURE_STORAGE_ACCOUNT_KEY", secretRef: "azure-storage-account-key" },
+        { name: "AZURE_STORAGE_CONNECTION_STRING", secretRef: "azure-storage-connection-string" },
       ]
     : [];
 

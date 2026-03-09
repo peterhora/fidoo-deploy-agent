@@ -36,7 +36,8 @@ const EXCLUDE_EXTENSIONS = [
 export async function createTarball(sourceDir: string): Promise<Buffer> {
   const tmpFile = path.join(os.tmpdir(), `deploy-build-${Date.now()}.tar.gz`);
 
-  const args: string[] = ["-czf", tmpFile];
+  // GNU format required — macOS bsdtar defaults to PAX which ACR Tasks cannot parse.
+  const args: string[] = ["--format=gnutar", "-czf", tmpFile];
 
   for (const dir of EXCLUDE_DIRS) {
     args.push(`--exclude=./${dir}`);
