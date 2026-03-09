@@ -6,7 +6,8 @@ import { config } from "../config.js";
 import { readDeployConfig, writeDeployConfig, generateSlug } from "../deploy/deploy-json.js";
 import { loadRegistry, saveRegistry, upsertApp } from "../deploy/registry.js";
 import { createBlobContainer } from "../azure/blob.js";
-import { acrBuildFromDir } from "../azure/acr.js";
+import { listBuildSourceUploadUrl, uploadToAzureFiles, scheduleAcrBuild, pollAcrBuild } from "../azure/acr.js";
+import { createTarball } from "../deploy/tarball.js";
 import { createOrUpdateContainerApp } from "../azure/container-apps.js";
 
 export const definition: ToolDefinition = {
@@ -126,19 +127,29 @@ export const handler: ToolHandler = async (args) => {
     const persistStorage = deployConfig!.persistentStorage ?? false;
     const port = (args.port as number | undefined) ?? config.defaultPort;
 
-    // 1-3. Build and push image via az acr build (handles upload + build internally)
-    await acrBuildFromDir(folder, `${slug}:${timestamp}`);
+    // 1. Package source as tar.gz
+    const tarball = await createTarball(folder);
 
-    // 4. Provision per-app blob container for Litestream (persistent only)
+    // 2. Get ACR upload URL
+    const { uploadUrl, relativePath } = await listBuildSourceUploadUrl(armToken);
+
+    // 3. Upload tar.gz to Azure Files
+    await uploadToAzureFiles(uploadUrl, tarball);
+
+    // 4. Trigger ACR Tasks build and wait for completion
+    const runId = await scheduleAcrBuild(armToken, `${slug}:${timestamp}`, relativePath);
+    await pollAcrBuild(armToken, runId);
+
+    // 5. Provision per-app blob container for Litestream (persistent only)
     const storageContainer = `${slug}-data`;
     if (persistStorage) {
       await createBlobContainer(storageToken, storageContainer);
     }
 
-    // 5. Get storage account key for injecting into Container App secret
+    // 6. Get storage account key for injecting into Container App secret
     const storageAccountKey = persistStorage ? config.storageKey : "";
 
-    // 6. Create or update Container App
+    // 7. Create or update Container App
     const appUrl = await createOrUpdateContainerApp(armToken, {
       slug,
       image: `${imageRepo}:${timestamp}`,
@@ -151,12 +162,12 @@ export const handler: ToolHandler = async (args) => {
 
     const containerAppId = `/subscriptions/${config.subscriptionId}/resourceGroups/${config.resourceGroup}/providers/Microsoft.App/containerApps/${slug}`;
 
-    // 7. Persist deploy config
+    // 8. Persist deploy config
     deployConfig!.resourceId = containerAppId;
     deployConfig!.containerAppId = containerAppId;
     await writeDeployConfig(folder, deployConfig!);
 
-    // 8. Update registry
+    // 9. Update registry
     let registry = await loadRegistry(storageToken);
     registry = upsertApp(registry, {
       slug,
