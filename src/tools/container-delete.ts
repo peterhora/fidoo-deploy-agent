@@ -3,6 +3,7 @@ import { loadTokens, isTokenExpired } from "../auth/token-store.js";
 import { loadRegistry, saveRegistry, removeApp } from "../deploy/registry.js";
 import { deleteContainerApp } from "../azure/container-apps.js";
 import { deleteBlobContainer } from "../azure/blob.js";
+import { deploySite } from "../deploy/site-deploy.js";
 
 export const definition: ToolDefinition = {
   name: "container_delete",
@@ -85,6 +86,9 @@ export const handler: ToolHandler = async (args) => {
     // Remove from registry
     const updated = removeApp(registry, slug);
     await saveRegistry(storageToken, updated);
+
+    // TODO: set up SWA in dev environment so dashboard rebuild can be tested
+    try { await deploySite(armToken, storageToken, updated); } catch { /* SWA not configured */ }
 
     return {
       content: [

@@ -8,6 +8,7 @@ import { createBlobContainer } from "../azure/blob.js";
 import { listBuildSourceUploadUrl, uploadSourceBlob, scheduleAcrBuild, pollAcrBuild } from "../azure/acr.js";
 import { createTarball } from "../deploy/tarball.js";
 import { createOrUpdateContainerApp } from "../azure/container-apps.js";
+import { deploySite } from "../deploy/site-deploy.js";
 export const definition = {
     name: "container_deploy",
     description: "Deploy or re-deploy a fullstack container app to Azure Container Apps. Builds the Docker image via ACR Tasks (no Docker needed locally). Use persistent_storage: true when the app uses SQLite — provisions a blob container and injects Litestream env vars.",
@@ -160,6 +161,11 @@ export const handler = async (args) => {
             persistentStorage: persistStorage,
         });
         await saveRegistry(storageToken, registry);
+        // TODO: set up SWA in dev environment so dashboard rebuild can be tested
+        try {
+            await deploySite(armToken, storageToken, registry);
+        }
+        catch { /* SWA not configured */ }
         return {
             content: [
                 {

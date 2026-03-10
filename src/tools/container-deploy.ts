@@ -9,6 +9,7 @@ import { createBlobContainer } from "../azure/blob.js";
 import { listBuildSourceUploadUrl, uploadSourceBlob, scheduleAcrBuild, pollAcrBuild } from "../azure/acr.js";
 import { createTarball } from "../deploy/tarball.js";
 import { createOrUpdateContainerApp } from "../azure/container-apps.js";
+import { deploySite } from "../deploy/site-deploy.js";
 
 export const definition: ToolDefinition = {
   name: "container_deploy",
@@ -182,6 +183,9 @@ export const handler: ToolHandler = async (args) => {
       persistentStorage: persistStorage,
     });
     await saveRegistry(storageToken, registry);
+
+    // TODO: set up SWA in dev environment so dashboard rebuild can be tested
+    try { await deploySite(armToken, storageToken, registry); } catch { /* SWA not configured */ }
 
     return {
       content: [
