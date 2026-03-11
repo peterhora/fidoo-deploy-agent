@@ -1,5 +1,49 @@
 # Deploy Agent — Architecture Overview
 
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Publisher (Claude Code + MCP plugin)                                        │
+│                                                                               │
+│  app_deploy / container_deploy / app_delete                                  │
+└────────────────────────────┬────────────────────────────────────────────────┘
+                             │ ARM token (device code flow)
+                             │ Storage token
+                             ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Azure                                                                        │
+│                                                                               │
+│  ┌─────────────────────────────┐    ┌──────────────────────────────────────┐ │
+│  │  Static App path            │    │  Container App path                  │ │
+│  │                             │    │                                      │ │
+│  │  Blob Storage               │    │  ACR (fidooapps)                     │ │
+│  │  ├─ app-content/            │    │  └─ Build image (ACR Tasks)          │ │
+│  │  │   ├─ {slug}.zip          │    │                                      │ │
+│  │  │   └─ registry.json       │    │  Container Apps Environment          │ │
+│  │  │                          │    │  └─ Container App ({slug})           │ │
+│  │  Static Web App (swa-ai-apps│    │      ├─ Easy Auth (Deploy Portal)    │ │
+│  │  └─ /{slug}/ (app files)    │    │      ├─ Image pull (managed identity)│ │
+│  │  └─ / (dashboard)           │    │      └─ Blob (SQLite, optional)      │ │
+│  └─────────────────────────────┘    └──────────────────────────────────────┘ │
+│                                                                               │
+│  Entra ID                                                                     │
+│  ├─ Deploy Plugin app reg   (publisher auth)                                  │
+│  ├─ Deploy Portal app reg   (end-user auth — SWA + Container Apps)            │
+│  └─ Graph SP                (redirect URI management)                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  End Users                                                                    │
+│                                                                               │
+│  https://ai-apps.env.fidoo.cloud/{slug}/     ← static apps                  │
+│  https://{slug}.api.env.fidoo.cloud/         ← container apps               │
+│                                                                               │
+│  Both protected by Entra ID login (Deploy Portal app registration)           │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## What It Is
 
 A Claude Code MCP plugin that lets AI assistants deploy apps to Azure with a single tool call. Supports two app types:
@@ -252,52 +296,6 @@ To onboard a new publisher:
 ```bash
 USER_ID=$(az ad user show --id user@FidooFXtest.onmicrosoft.com --query id -o tsv)
 az ad group member add --group fi-aiapps-pub --member-id $USER_ID
-```
-
----
-
-## Component Interaction Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  Publisher (Claude Code + MCP plugin)                                        │
-│                                                                               │
-│  app_deploy / container_deploy / app_delete                                  │
-└────────────────────────────┬────────────────────────────────────────────────┘
-                             │ ARM token (device code flow)
-                             │ Storage token
-                             ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  Azure                                                                        │
-│                                                                               │
-│  ┌─────────────────────────────┐    ┌──────────────────────────────────────┐ │
-│  │  Static App path            │    │  Container App path                  │ │
-│  │                             │    │                                      │ │
-│  │  Blob Storage               │    │  ACR (fidooapps)                     │ │
-│  │  ├─ app-content/            │    │  └─ Build image (ACR Tasks)          │ │
-│  │  │   ├─ {slug}.zip          │    │                                      │ │
-│  │  │   └─ registry.json       │    │  Container Apps Environment          │ │
-│  │  │                          │    │  └─ Container App ({slug})           │ │
-│  │  Static Web App (swa-ai-apps│    │      ├─ Easy Auth (Deploy Portal)    │ │
-│  │  └─ /{slug}/ (app files)    │    │      ├─ Image pull (managed identity)│ │
-│  │  └─ / (dashboard)           │    │      └─ Blob (SQLite, optional)      │ │
-│  └─────────────────────────────┘    └──────────────────────────────────────┘ │
-│                                                                               │
-│  Entra ID                                                                     │
-│  ├─ Deploy Plugin app reg   (publisher auth)                                  │
-│  ├─ Deploy Portal app reg   (end-user auth — SWA + Container Apps)            │
-│  └─ Graph SP                (redirect URI management)                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  End Users                                                                    │
-│                                                                               │
-│  https://ai-apps.env.fidoo.cloud/{slug}/     ← static apps                  │
-│  https://{slug}.api.env.fidoo.cloud/         ← container apps               │
-│                                                                               │
-│  Both protected by Entra ID login (Deploy Portal app registration)           │
-└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
