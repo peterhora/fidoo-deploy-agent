@@ -43,7 +43,7 @@ describe("config", () => {
   it("buildConfig uses hardcoded defaults when no env vars set", async () => {
     const { buildConfig } = await import("../src/config.js");
     const cfg = buildConfig();
-    assert.equal(cfg.tenantId, "7d8c4da5-9bcc-48dd-ace3-fb4681cf4277");
+    assert.equal(cfg.tenantId, "7bcac0ca-0725-4318-9adc-e9b670a48e92");
     assert.equal(cfg.clientId, "PLACEHOLDER_CLIENT_ID");
     assert.equal(cfg.subscriptionId, "PLACEHOLDER_SUBSCRIPTION_ID");
     assert.equal(cfg.resourceGroup, "rg-published-apps");
@@ -164,8 +164,8 @@ describe("config", () => {
     assert.equal(cfg.entraBaseUrl, "https://login.microsoftonline.com");
     assert.equal(cfg.swaApiVersion, "2022-09-01");
     assert.equal(cfg.storageApiVersion, "2024-11-04");
-    assert.equal(cfg.swaSkuName, "Free");
-    assert.equal(cfg.swaSkuTier, "Free");
+    assert.equal(cfg.swaSkuName, "Standard");
+    assert.equal(cfg.swaSkuTier, "Standard");
   });
 
   it("portalObjectId defaults to empty string", async () => {
