@@ -12,12 +12,18 @@
       "mcp__plugin_deploy-agent_deploy-agent__auth_status",
       "Bash(git fetch:*)",
       "Bash(az resource:*)",
-      "Bash(az containerapp:*)"
+      "Bash(az containerapp:*)",
+      "mcp__plugin_deploy-agent_deploy-agent__auth_login",
+      "mcp__deploy-agent__container_deploy"
     ],
     "additionalDirectories": [
       "/Users/peterhora/Documents/fidoo/deploy_agent/docs"
     ]
   },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "deploy-agent"
+  ],
   "enabledPlugins": {
     "plugin-dev@claude-plugins-official": true
   }
