@@ -23,9 +23,9 @@ export async function createOrUpdateContainerApp(
   token: string,
   opts: ContainerAppOptions,
 ): Promise<string> {
-  const containerAppPath = `/subscriptions/${config.subscriptionId}/resourceGroups/${config.resourceGroup}/providers/Microsoft.App/containerApps/${opts.slug}`;
+  const containerAppPath = `/subscriptions/${config.subscriptionId}/resourceGroups/${config.containerResourceGroup}/providers/Microsoft.App/containerApps/${opts.slug}`;
   const url = `${config.armBaseUrl}${containerAppPath}?api-version=${CA_API}`;
-  const envId = `/subscriptions/${config.subscriptionId}/resourceGroups/${config.resourceGroup}/providers/Microsoft.App/managedEnvironments/${config.containerEnvName}`;
+  const envId = `/subscriptions/${config.subscriptionId}/resourceGroups/${config.containerResourceGroup}/providers/Microsoft.App/managedEnvironments/${config.containerEnvName}`;
 
   const secrets: { name: string; value: string }[] = [
     { name: "acr-admin-password", value: config.acrAdminPassword },
@@ -127,7 +127,7 @@ export async function configureEasyAuth(
     await addRedirectUri(graphToken, slug);
   }
 
-  const containerAppPath = `/subscriptions/${config.subscriptionId}/resourceGroups/${config.resourceGroup}/providers/Microsoft.App/containerApps/${slug}`;
+  const containerAppPath = `/subscriptions/${config.subscriptionId}/resourceGroups/${config.containerResourceGroup}/providers/Microsoft.App/containerApps/${slug}`;
 
   // 2. Inject portal client secret into Container App secrets
   const appUrl = `${config.armBaseUrl}${containerAppPath}?api-version=${CA_API}`;
@@ -241,7 +241,7 @@ export async function removeRedirectUri(graphToken: string, slug: string): Promi
 // ── Container App lifecycle ────────────────────────────────────────────────
 
 export async function deleteContainerApp(token: string, slug: string): Promise<void> {
-  const url = `${config.armBaseUrl}/subscriptions/${config.subscriptionId}/resourceGroups/${config.resourceGroup}/providers/Microsoft.App/containerApps/${slug}?api-version=${CA_API}`;
+  const url = `${config.armBaseUrl}/subscriptions/${config.subscriptionId}/resourceGroups/${config.containerResourceGroup}/providers/Microsoft.App/containerApps/${slug}?api-version=${CA_API}`;
   const res = await fetch(url, { method: "DELETE", headers: h(token) });
   if (!res.ok && res.status !== 404) {
     throw new Error(`Container App delete failed: ${res.status} ${await res.text()}`);

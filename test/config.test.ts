@@ -189,6 +189,20 @@ describe("config", () => {
     assert.equal(c.graphSpClientSecret, "");
   });
 
+  it("containerResourceGroup defaults to resourceGroup value", async () => {
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal(cfg.containerResourceGroup, cfg.resourceGroup);
+  });
+
+  it("reads containerResourceGroup from DEPLOY_AGENT_CONTAINER_RESOURCE_GROUP", async () => {
+    process.env.DEPLOY_AGENT_CONTAINER_RESOURCE_GROUP = "rg-containers";
+    const { buildConfig } = await import("../src/config.js");
+    const cfg = buildConfig();
+    assert.equal(cfg.containerResourceGroup, "rg-containers");
+    delete process.env.DEPLOY_AGENT_CONTAINER_RESOURCE_GROUP;
+  });
+
   it("reads portalObjectId from env", async () => {
     process.env.DEPLOY_AGENT_PORTAL_OBJECT_ID = "obj-123";
     const { buildConfig } = await import("../src/config.js");
