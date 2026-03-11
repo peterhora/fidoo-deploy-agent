@@ -11,7 +11,6 @@ export async function createOrUpdateContainerApp(token, opts) {
     const url = `${config.armBaseUrl}${containerAppPath}?api-version=${CA_API}`;
     const envId = `/subscriptions/${config.subscriptionId}/resourceGroups/${config.containerResourceGroup}/providers/Microsoft.App/managedEnvironments/${config.containerEnvName}`;
     const secrets = [
-        { name: "acr-admin-password", value: config.acrAdminPassword },
         ...(opts.persistentStorage
             ? [{ name: "azure-storage-account-key", value: opts.storageAccountKey }]
             : []),
@@ -26,6 +25,10 @@ export async function createOrUpdateContainerApp(token, opts) {
         : [];
     const body = {
         location: config.location,
+        identity: {
+            type: "UserAssigned",
+            userAssignedIdentities: { [config.pullIdentityId]: {} },
+        },
         properties: {
             environmentId: envId,
             configuration: {
@@ -38,8 +41,7 @@ export async function createOrUpdateContainerApp(token, opts) {
                 registries: [
                     {
                         server: config.acrLoginServer,
-                        username: config.acrAdminUsername,
-                        passwordSecretRef: "acr-admin-password",
+                        identity: config.pullIdentityId,
                     },
                 ],
             },

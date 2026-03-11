@@ -66,7 +66,7 @@ export async function scheduleAcrBuild(token, imageTag, sourceLocation) {
 // Poll until the build succeeds or fails. 5s interval, 10 minute timeout.
 export async function pollAcrBuild(token, runId, onLog) {
     const runUrl = `${config.armBaseUrl}/subscriptions/${config.subscriptionId}/resourceGroups/${config.containerResourceGroup}/providers/Microsoft.ContainerRegistry/registries/${config.acrName}/runs/${runId}?api-version=${ACR_API}`;
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 240; i++) {
         await new Promise((r) => setTimeout(r, 5000));
         const res = await fetch(runUrl, { headers: armHeaders(token) });
         if (!res.ok) {
@@ -81,6 +81,6 @@ export async function pollAcrBuild(token, runId, onLog) {
             throw new Error(`ACR build ${runId} ended with status: ${status}`);
         }
     }
-    throw new Error(`ACR build ${runId} timed out after 10 minutes`);
+    throw new Error(`ACR build ${runId} timed out after 20 minutes`);
 }
 //# sourceMappingURL=acr.js.map

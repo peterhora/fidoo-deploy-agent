@@ -141,12 +141,18 @@ export const handler = async (args) => {
             storageAccountKey,
             storageContainer,
         });
-        // 8. Configure Easy Auth (skipped silently if portal credentials not set)
-        // TODO: get DEPLOY_AGENT_PORTAL_CLIENT_ID and DEPLOY_AGENT_PORTAL_CLIENT_SECRET from security team
+        // 8. Configure Easy Auth (skipped silently if portal credentials not set).
+        // Wait briefly for the Container App to fully stabilize before patching secrets / authConfigs,
+        // otherwise the PATCH may land while the app is still "Updating" and get rejected.
+        await new Promise((r) => setTimeout(r, 5000));
         try {
             await configureEasyAuth(armToken, slug);
         }
-        catch { /* portal credentials not configured */ }
+        catch (err) {
+            // Non-fatal: Easy Auth credentials may not be configured, or the app is in a region
+            // without Easy Auth support. Log to stderr so it's visible in server logs.
+            process.stderr.write(`[warn] Easy Auth configuration skipped: ${err}\n`);
+        }
         const containerAppId = `/subscriptions/${config.subscriptionId}/resourceGroups/${config.resourceGroup}/providers/Microsoft.App/containerApps/${slug}`;
         // 9. Persist deploy config
         deployConfig.resourceId = containerAppId;
