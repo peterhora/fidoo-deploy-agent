@@ -19,3 +19,4 @@ export interface TokenResponse {
 export declare function startDeviceCodeFlow(tenantId: string, clientId: string, scope: string): Promise<DeviceCodeResponse>;
 export declare function pollForToken(tenantId: string, clientId: string, deviceCode: string, interval: number): Promise<TokenResponse>;
 export declare function refreshAccessToken(tenantId: string, clientId: string, refreshToken: string, scope?: string): Promise<TokenResponse>;
+export declare function refreshVaultToken(refreshToken: string): Promise<string>;

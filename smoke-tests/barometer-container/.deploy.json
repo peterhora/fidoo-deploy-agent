@@ -1,0 +1,10 @@
+{
+  "appSlug": "sprint-barometer-container",
+  "appType": "container",
+  "appName": "Sprint Barometer Container",
+  "appDescription": "Container smoke test for feat/keyvault-secrets branch",
+  "resourceId": "/subscriptions/910c52ef-044b-4bd1-b5e9-84700289fca7/resourceGroups/rg-published-apps/providers/Microsoft.App/containerApps/sprint-barometer-container",
+  "containerAppId": "/subscriptions/910c52ef-044b-4bd1-b5e9-84700289fca7/resourceGroups/rg-published-apps/providers/Microsoft.App/containerApps/sprint-barometer-container",
+  "imageRepository": "fidooapps-d4f2bhfjg2fygqg7.azurecr.io/sprint-barometer-container",
+  "persistentStorage": true
+}

@@ -2,6 +2,8 @@
  * OAuth2 Device Code Flow for Azure Entra ID.
  * No dependencies — uses global fetch.
  */
+import { config } from "../config.js";
+import { loadTokens, saveTokens } from "./token-store.js";
 function tokenUrl(tenantId) {
     return `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
 }
@@ -82,5 +84,19 @@ export async function refreshAccessToken(tenantId, clientId, refreshToken, scope
         throw new Error(`Token refresh failed: ${err.error}${err.error_description ? ` — ${err.error_description}` : ""}`);
     }
     return body;
+}
+export async function refreshVaultToken(refreshToken) {
+    const response = await refreshAccessToken(config.tenantId, config.clientId, refreshToken, config.vaultScope);
+    // Load-merge-save: preserve existing ARM/Storage tokens, update only vault fields
+    const existing = await loadTokens();
+    if (existing) {
+        await saveTokens({
+            ...existing,
+            vault_access_token: response.access_token,
+            vault_expires_at: Date.now() + response.expires_in * 1000,
+            refresh_token: response.refresh_token ?? existing.refresh_token,
+        });
+    }
+    return response.access_token;
 }
 //# sourceMappingURL=device-code.js.map

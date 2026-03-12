@@ -1,5 +1,8 @@
 import { createStdioTransport } from "./protocol.js";
 import { toolRegistry } from "./tools/index.js";
+import { loadTokens } from "./auth/token-store.js";
+import { loadSecrets, config } from "./config.js";
+import { refreshVaultToken } from "./auth/device-code.js";
 const SERVER_INFO = {
     name: "deploy-agent",
     version: "0.1.0",
@@ -15,6 +18,7 @@ export async function handleToolsList() {
     const tools = Array.from(toolRegistry.values()).map((t) => t.definition);
     return { tools };
 }
+const EXEMPT_TOOLS = new Set(["auth_login", "auth_poll", "auth_status"]);
 export async function handleToolsCall(params) {
     const name = params?.name;
     const args = (params?.arguments) ?? {};
@@ -24,6 +28,26 @@ export async function handleToolsCall(params) {
             content: [{ type: "text", text: `Unknown tool: ${name}` }],
             isError: true,
         };
+    }
+    // Load secrets from Key Vault before dispatching (skip auth tools)
+    if (!EXEMPT_TOOLS.has(name) && config.keyVaultName) {
+        const tokens = await loadTokens();
+        if (tokens) {
+            let vaultToken = tokens.vault_access_token;
+            // Refresh vault token if missing or expired
+            if (!vaultToken || (tokens.vault_expires_at ?? 0) < Date.now()) {
+                try {
+                    vaultToken = await refreshVaultToken(tokens.refresh_token);
+                }
+                catch {
+                    // Vault token refresh failed — proceed without secrets.
+                    // Tools that need secrets will fail with clear errors downstream.
+                }
+            }
+            if (vaultToken) {
+                await loadSecrets(vaultToken);
+            }
+        }
     }
     return tool.handler(args);
 }

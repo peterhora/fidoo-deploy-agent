@@ -6,7 +6,7 @@ let matchers = [];
 let originalFetch;
 let calls = [];
 export function mockFetch(matcher) {
-    matchers.push(matcher);
+    matchers.unshift(matcher);
 }
 export function mockFetchOnce(response, urlMatch) {
     let used = false;

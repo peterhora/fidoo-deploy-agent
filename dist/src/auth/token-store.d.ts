@@ -9,9 +9,11 @@
 export interface StoredTokens {
     access_token: string;
     storage_access_token: string;
+    vault_access_token?: string;
     refresh_token: string;
     expires_at: number;
     storage_expires_at: number;
+    vault_expires_at?: number;
 }
 export declare function getTokenDir(): string;
 export declare function saveTokens(tokens: StoredTokens, dir?: string): Promise<void>;

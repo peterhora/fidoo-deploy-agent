@@ -21,6 +21,8 @@ export declare function buildConfig(): {
     portalObjectId: string;
     graphSpClientId: string;
     graphSpClientSecret: string;
+    keyVaultName: string;
+    vaultScope: string;
     defaultPort: number;
     armScope: string;
     storageScope: string;
@@ -55,6 +57,8 @@ export declare const config: {
     portalObjectId: string;
     graphSpClientId: string;
     graphSpClientSecret: string;
+    keyVaultName: string;
+    vaultScope: string;
     defaultPort: number;
     armScope: string;
     storageScope: string;
@@ -66,3 +70,6 @@ export declare const config: {
     swaSkuName: string;
     swaSkuTier: string;
 };
+export declare function loadSecrets(vaultToken: string): Promise<void>;
+/** Test-only: reset the idempotency flag so loadSecrets can be called again. */
+export declare function resetSecretsLoaded(): void;

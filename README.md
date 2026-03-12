@@ -42,7 +42,7 @@ The script is idempotent and creates/configures:
 | Step | What it does |
 |------|-------------|
 | Resource group | `rg-published-apps` in `westeurope` |
-| Deploy Plugin app | App registration for MCP agent OAuth (device code flow); API permissions for Azure Service Management and Azure Storage; `app_publisher` role |
+| Deploy Plugin app | App registration for MCP agent OAuth (device code flow); API permissions for Azure Service Management, Azure Storage, and Azure Key Vault; `app_publisher` role |
 | Deploy Portal app | Single-tenant web app used by SWA for portal visitor authentication; redirect URIs configured; client secret generated (printed once — see below) |
 | Storage account | `stpublishedapps` with `app-content` blob container |
 | Static Web App | `swa-ai-apps` (Free SKU) |
@@ -57,7 +57,9 @@ az ad app credential reset --id <DEPLOY_PORTAL_APP_ID> --display-name swa-auth -
 # Then re-run setup.sh to push the new secret to SWA app settings
 ```
 
-**Admin consent:** The `az ad app permission admin-consent` step requires Global Administrator or Privileged Role Administrator. If it fails, grant consent manually in the Azure Portal: **Entra ID** > **App registrations** > **Deploy Plugin** > **API permissions** > **Grant admin consent**. Both Azure Service Management and Azure Storage `user_impersonation` permissions must be consented.
+**Admin consent:** The `az ad app permission admin-consent` step requires Global Administrator or Privileged Role Administrator. If it fails, grant consent manually in the Azure Portal: **Entra ID** > **App registrations** > **Deploy Plugin** > **API permissions** > **Grant admin consent**. Azure Service Management, Azure Storage, and Azure Key Vault `user_impersonation` permissions must all be consented.
+
+**Key Vault API permission:** If using `DEPLOY_AGENT_KEY_VAULT_NAME` for runtime secret resolution, the Deploy Plugin app registration must have the **Azure Key Vault > user_impersonation** delegated permission added and admin-consented. Without it, `auth_poll` fails with `AADSTS65001`. Add it manually: **App registrations** > **Deploy Plugin** > **API permissions** > **Add a permission** > **Azure Key Vault** > Delegated > `user_impersonation` > **Grant admin consent**.
 
 DNS: CNAME `ai-apps.env.fidoo.cloud` pointing to the SWA default hostname, then add the custom domain to the SWA.
 

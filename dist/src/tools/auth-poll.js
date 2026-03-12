@@ -33,14 +33,19 @@ export const handler = async (args) => {
         const armTokenResponse = await pollForToken(config.tenantId, config.clientId, deviceCode, 5);
         // Use refresh token to get a storage-scoped token
         const storageTokenResponse = await refreshAccessToken(config.tenantId, config.clientId, armTokenResponse.refresh_token, config.storageScope);
+        // Use refresh token to get a vault-scoped token
+        const vaultTokenResponse = await refreshAccessToken(config.tenantId, config.clientId, storageTokenResponse.refresh_token, config.vaultScope);
         const armExpiresAt = Date.now() + armTokenResponse.expires_in * 1000;
         const storageExpiresAt = Date.now() + storageTokenResponse.expires_in * 1000;
+        const vaultExpiresAt = Date.now() + vaultTokenResponse.expires_in * 1000;
         await saveTokens({
             access_token: armTokenResponse.access_token,
             storage_access_token: storageTokenResponse.access_token,
-            refresh_token: storageTokenResponse.refresh_token,
+            vault_access_token: vaultTokenResponse.access_token,
+            refresh_token: vaultTokenResponse.refresh_token,
             expires_at: armExpiresAt,
             storage_expires_at: storageExpiresAt,
+            vault_expires_at: vaultExpiresAt,
         });
         return {
             content: [
