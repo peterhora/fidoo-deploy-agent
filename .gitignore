@@ -6,3 +6,4 @@ infra/.env.fish
 infra/certs/
 
 .env
+.claude/settings.local.json
