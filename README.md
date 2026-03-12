@@ -41,10 +41,10 @@ The script is idempotent and creates/configures:
 
 | Step | What it does |
 |------|-------------|
-| Resource group | `rg-published-apps` in `westeurope` |
+| Resource group | `rg-published-apps` in `germanywestcentral` |
 | Deploy Plugin app | App registration for MCP agent OAuth (device code flow); API permissions for Azure Service Management, Azure Storage, and Azure Key Vault; `app_publisher` role |
 | Deploy Portal app | Single-tenant web app used by SWA for portal visitor authentication; redirect URIs configured; client secret generated (printed once — see below) |
-| Storage account | `stpublishedapps` with `app-content` blob container |
+| Storage account | `fidoovibestorage` with `app-content` blob container |
 | Static Web App | `swa-ai-apps` (Free SKU) |
 | SWA app settings | `PORTAL_CLIENT_ID` and `PORTAL_CLIENT_SECRET` set on the SWA |
 | SWA authsettingsV2 | Configures the Deploy Portal app as the AAD identity provider; unauthenticated requests redirected to login |
@@ -56,17 +56,17 @@ All resources are manually provisioned (no IaC). This is the current footprint:
 
 | Resource | Name | Resource Group | Purpose |
 |----------|------|----------------|---------|
-| **Resource Group** | `rg-published-apps` | — | Static apps, SWA, storage, ACR |
-| **Resource Group** | `rg-alipowski-test` | — | Container Apps, Container Environment |
+| **Resource Group** | `rg-published-apps` | — | Static apps, SWA, storage |
+| **Resource Group** | `rg-alipowski-test` | — | Container Apps, Container Environment, ACR, Key Vault |
 | **Storage Account** | `fidoovibestorage` | `rg-published-apps` | Blob storage for static app content + registry.json |
 | **Static Web App** | `swa-ai-apps` | `rg-published-apps` | Hosts all static apps + dashboard |
-| **Container Registry** | `fidooapps` | `rg-alipowski-test` | Docker images for container apps |
-| **Container Environment** | `fidoo-vibe-env` | `rg-alipowski-test` | Hosts all container apps |
+| **Container Registry** | `fidooapps` (`fidooapps-d4f2bhfjg2fygqg7.azurecr.io`) | `rg-alipowski-test` | Docker images for container apps |
+| **Container Environment** | `managedEnvironment-rgalipowskitest-adaa` | `rg-alipowski-test` | Hosts all container apps |
 | **Key Vault** | `kv-fidoo-vibe-deploy2` | `rg-alipowski-test` | Runtime secrets (RBAC access model) |
-| **Managed Identity** | `fidoo-vibe-container-puller` | `rg-published-apps` | AcrPull for Container Apps |
-| **App Registration** | Deploy Plugin | — | MCP agent OAuth (device code flow) |
-| **App Registration** | Deploy Portal | — | Entra ID auth for SWA + Container Apps |
-| **App Registration** | Deploy Agent Graph SP | — | Redirect URI management on Deploy Portal app |
+| **Managed Identity** | `fidoo-vibe-container-puller` | `rg-published-apps` | AcrPull for Container Apps (currently unused — ACR admin fallback active) |
+| **App Registration** | Deploy Plugin (`d98d6d07-...`) | — | MCP agent OAuth (device code flow) |
+| **App Registration** | Deploy Portal (`e6df67bc-...`) | — | Entra ID auth for SWA + Container Apps |
+| **App Registration** | Deploy Agent Graph SP (`f1ddd060-...`) | — | Redirect URI management on Deploy Portal app |
 | **Security Group** | `fi-aiapps-pub` | — | Publisher RBAC group |
 
 **DNS records (manual):**
@@ -82,6 +82,8 @@ All resources are manually provisioned (no IaC). This is the current footprint:
 | `deploy-graph-sp-client-secret` | `config.graphSpClientSecret` |
 
 **Key Vault access:** RBAC model. `fi-aiapps-pub` group needs **Key Vault Secrets User** role on the vault. Admins need **Key Vault Secrets Officer** (or Editor) to manage secrets.
+
+**Note:** `setup.sh` references `stpublishedapps` and `fidoo-vibe-env` as resource names, but the actual deployed resources use `fidoovibestorage` and `managedEnvironment-rgalipowskitest-adaa`. The script needs updating to match production.
 
 **`PORTAL_CLIENT_SECRET`** is printed once during setup. Store it in a vault immediately. It is saved automatically as a SWA app setting by the script, but is not written to `infra/.env`. To rotate it:
 
