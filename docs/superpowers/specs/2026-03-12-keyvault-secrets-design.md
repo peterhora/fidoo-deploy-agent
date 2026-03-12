@@ -75,9 +75,9 @@ saveTokens({
   storage_access_token: storageResponse.access_token,
   vault_access_token: vaultResponse.access_token,
   refresh_token: vaultResponse.refresh_token,
-  expires_at: nowSec + armResponse.expires_in,
-  storage_expires_at: nowSec + storageResponse.expires_in,
-  vault_expires_at: nowSec + vaultResponse.expires_in,
+  expires_at: Date.now() + armResponse.expires_in * 1000,
+  storage_expires_at: Date.now() + storageResponse.expires_in * 1000,
+  vault_expires_at: Date.now() + vaultResponse.expires_in * 1000,
 });
 ```
 
@@ -142,8 +142,8 @@ if (!EXEMPT_TOOLS.has(name) && config.keyVaultName) {
   if (tokens) {
     let vaultToken = tokens.vault_access_token;
 
-    // Refresh vault token if missing or expired
-    if (!vaultToken || (tokens.vault_expires_at ?? 0) < Date.now() / 1000) {
+    // Refresh vault token if missing or expired (timestamps in milliseconds, matching ARM/Storage)
+    if (!vaultToken || (tokens.vault_expires_at ?? 0) < Date.now()) {
       vaultToken = await refreshVaultToken(tokens.refresh_token);
     }
 
@@ -154,7 +154,27 @@ if (!EXEMPT_TOOLS.has(name) && config.keyVaultName) {
 }
 ```
 
-Where `refreshVaultToken` exchanges the stored refresh token for a new vault-scoped access token and persists it (same pattern as existing ARM/Storage token refresh). This handles the ~1 hour Azure token lifetime — after expiry, the vault token is silently refreshed before secret resolution.
+`refreshVaultToken` lives in `src/auth/device-code.ts` alongside the existing `refreshAccessToken`. It:
+
+```typescript
+export async function refreshVaultToken(refreshToken: string): Promise<string> {
+  const response = await exchangeRefreshToken(
+    config.tenantId, config.clientId, refreshToken,
+    "https://vault.azure.net/.default offline_access",
+  );
+  // Load-merge-save: preserve existing ARM/Storage tokens, update only vault fields
+  const existing = loadTokens()!;
+  saveTokens({
+    ...existing,
+    vault_access_token: response.access_token,
+    vault_expires_at: Date.now() + response.expires_in * 1000,
+    refresh_token: response.refresh_token ?? existing.refresh_token,
+  });
+  return response.access_token;
+}
+```
+
+This handles the ~1 hour Azure token lifetime — after expiry, the vault token is silently refreshed before secret resolution.
 
 After `loadSecrets` completes, `config.storageKey` etc. work as before — zero changes to any Azure client code or individual tool handlers.
 
